@@ -63,7 +63,7 @@ function RichEditable({ as: Tag = "div", value, path, editing, onCommit, classNa
   }, [value]);
 
   return (
-    <div className="rich-field">
+    <div className={`rich-field${editing ? (focused ? " rich-field-active" : " rich-field-hint") : ""}`}>
       {editing && focused && <FormatToolbar getTarget={() => ref.current} />}
       <Tag
         ref={ref}
@@ -683,7 +683,7 @@ export default function Dashboard({ client, isStaff }) {
       <aside className={`sidebar${navOpen ? " open" : ""}`}>
         <div className="side-brand">
           <div className="mark">
-            <img src="/mojo-logo.svg" alt="" width={18} height={18} />
+            <img src="/mojo-logo.png" alt="" width={18} height={18} />
           </div>
           <div className="side-title">
             Mountain Mojo
@@ -692,17 +692,31 @@ export default function Dashboard({ client, isStaff }) {
         </div>
 
         <ul className="side-nav">
-          {NAV_SECTIONS.map((s) => (
-            <li key={s.id}>
-              <a
-                href={`#${s.id}`}
-                className={activeSection === s.id ? "active" : ""}
-                onClick={() => setNavOpen(false)}
-              >
-                {s.label}
-              </a>
-            </li>
-          ))}
+          {NAV_SECTIONS.map((s) => {
+            const label = getPath(content, `nav.${s.id}`) ?? s.label;
+            return (
+              <li key={s.id}>
+                {editing ? (
+                  <div className={`nav-label-edit${activeSection === s.id ? " active" : ""}`}>
+                    <Editable
+                      value={label}
+                      path={`nav.${s.id}`}
+                      editing={editing}
+                      onCommit={commit}
+                    />
+                  </div>
+                ) : (
+                  <a
+                    href={`#${s.id}`}
+                    className={activeSection === s.id ? "active" : ""}
+                    onClick={() => setNavOpen(false)}
+                  >
+                    {label}
+                  </a>
+                )}
+              </li>
+            );
+          })}
         </ul>
 
         <div className="side-foot">
@@ -745,7 +759,7 @@ export default function Dashboard({ client, isStaff }) {
           <div className="masthead-inner">
             <div className="brand-row">
               <div className="brand-mark">
-                <img src="/mojo-logo.svg" alt="Mountain Mojo Group" width={22} height={22} />
+                <img src="/mojo-logo.png" alt="Mountain Mojo Group" width={22} height={22} />
               </div>
               <div>
                 <div className="nav-brand">Mountain Mojo Group</div>

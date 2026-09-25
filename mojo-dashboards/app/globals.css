@@ -81,6 +81,18 @@ input { font-family: inherit; }
 .side-nav a:hover { background: var(--surface-sunken); color: var(--ink); }
 .side-nav a.active { background: var(--brand-tint); color: var(--brand-strong); border-left-color: var(--brand-strong); }
 
+/* In edit mode a nav item becomes an editable label instead of a link
+   (so clicking into it to rename doesn't also jump the page to that
+   section) -- same box model as .side-nav a so the sidebar's height
+   and spacing don't jump between view and edit mode. */
+.nav-label-edit {
+  padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  color: var(--ink-soft); margin-bottom: 2px; border-left: 2px dashed var(--border);
+  background: var(--surface-sunken);
+}
+.nav-label-edit.active { border-left-color: var(--brand-strong); color: var(--brand-strong); }
+.nav-label-edit [contenteditable] { outline: none; }
+
 .side-foot { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
 .side-updated { font-size: 11px; color: var(--ink-faint); margin-bottom: 10px; line-height: 1.4; }
 .side-btn {
@@ -319,6 +331,20 @@ body.editing .edit-ctl { display: inline-flex; }
 /* ================= Rich text formatting ================= */
 .rich-field { position: relative; }
 .section-head > .rich-field { max-width: 42ch; }
+
+/* While editing, an unfocused rich-text field gets a dashed outline
+   and a small "Aa" badge so it's obvious -- without clicking around --
+   that this paragraph (unlike a plain label or heading) supports bold,
+   italic, alignment, and font-size formatting once you click into it. */
+.rich-field-hint { outline: 1px dashed var(--border); border-radius: 6px; }
+.rich-field-hint::after {
+  content: "Aa · click to format";
+  position: absolute; top: -9px; right: 6px; z-index: 1;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 1px 7px; color: var(--ink-faint); pointer-events: none;
+}
+.rich-field-active { border-radius: 6px; }
 
 .format-toolbar {
   display: inline-flex; align-items: center; gap: 2px; margin-bottom: 6px; padding: 4px;

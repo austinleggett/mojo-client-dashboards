@@ -31,6 +31,12 @@ export function blankContent(clientName) {
       clientLogo: "",
     },
     sectionOrder: DEFAULT_SECTION_ORDER.slice(),
+    // Sidebar nav labels, keyed by section id -- editable in edit mode
+    // (see the sidebar render in Dashboard.js). Seeded from
+    // NAV_SECTIONS' default labels; older saved clients won't have
+    // this object at all, so Dashboard.js always falls back to
+    // NAV_SECTIONS' label when a key is missing.
+    nav: Object.fromEntries(NAV_SECTIONS.map((s) => [s.id, s.label])),
     recap: {
       eyebrow: "Performance recap",
       heading: "Add this month's headline",
