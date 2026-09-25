@@ -1,24 +1,64 @@
-// Server-side HTML sanitization for the handful of "rich text" fields
-// that the dashboard stores as sanitized HTML (bold/italic/underline,
-// alignment, font size) instead of plain text. Every other field in
-// `content` is plain text rendered without dangerouslySetInnerHTML, so
-// it's left completely untouched here -- there's nothing to sanitize,
-// and running it through an HTML sanitizer would risk mangling plain
-// characters (e.g. turning "R&D" into "R&amp;D").
+// Server-side HTML sanitization for the "rich text" fields the
+// dashboard stores as sanitized HTML (bold/italic/underline, alignment,
+// font size) instead of plain text. Virtually every user-facing text
+// field in `content` is rich now -- the only ones deliberately left
+// plain are every section's menu label (nav.* for a built-in section,
+// customSections.*.label for a user-added one -- both rendered via
+// plain textContent in the sidebar so a rename doesn't need
+// formatting), plus structural, non-prose fields that were never
+// editable text in the first place: meta.clientLogo (an image data:
+// URI), meta.updatedAt (an auto-set date), and sectionOrder (an array
+// of section ids). Those are safe to leave out of RICH_TEXT_PATTERNS
+// precisely because Dashboard.js never renders them with
+// dangerouslySetInnerHTML -- sanitizing a field here that's rendered as
+// plain text elsewhere is what would mangle plain characters (e.g.
+// turning "R&D" into "R&amp;D" and showing the escaped entity
+// literally).
 //
 // Keep RICH_TEXT_PATTERNS in sync with wherever components/Dashboard.js
 // renders a field with the RichEditable component instead of Editable.
 import sanitizeHtml from "sanitize-html";
 
 export const RICH_TEXT_PATTERNS = [
+  "meta.clientName",
   "meta.tagline",
+  "meta.contactName",
+  "meta.contactTitle",
+  "meta.contactEmail",
+  "meta.contactPhone",
   "meta.footerNote",
+  "recap.eyebrow",
+  "recap.heading",
   "recap.note",
+  "recap.stats.*.label",
+  "recap.stats.*.value",
+  "recap.stats.*.sub",
+  "recap.footnote.*",
+  "momentum.items.*.month",
   "momentum.items.*.text",
+  "stores.items.*.name",
   "stores.items.*.text",
+  "review.groups.*.label",
+  "review.groups.*.items.*.title",
+  "review.groups.*.items.*.store",
   "review.groups.*.items.*.desc",
+  "questions.items.*.store",
+  "questions.items.*.title",
   "questions.items.*.excerpt",
   "questions.items.*.response",
+  "working.columns.*.label",
+  "working.columns.*.items.*",
+  "approved.items.*",
+  "events.items.*.day",
+  "events.items.*.mon",
+  "events.items.*.title",
+  "events.items.*.loc",
+  "meetings.items.*.name",
+  "meetings.items.*.freq",
+  "meetings.items.*.next",
+  "customSections.*.heading",
+  "customSections.*.note",
+  "customSections.*.items.*.text",
 ];
 
 export function isRichTextPath(path) {

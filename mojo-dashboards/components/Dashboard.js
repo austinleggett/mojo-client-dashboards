@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { NAV_SECTIONS, TAG_OPTIONS, ITEM_TEMPLATES, DEFAULT_SECTION_ORDER } from "@/lib/contentTemplate";
+import { NAV_SECTIONS, BUILTIN_SECTIONS, TAG_OPTIONS, ITEM_TEMPLATES, DEFAULT_SECTION_ORDER } from "@/lib/contentTemplate";
 import { getPath, setPath, pushAt, removeAt } from "@/lib/path";
 import { SortableGroup, arrayMove } from "@/components/Sortable";
 import FormatToolbar from "@/components/FormatToolbar";
@@ -17,6 +17,10 @@ const CheckIcon = () => (
 // Only touches the DOM from an effect when the value actually differs
 // from what's rendered, so an in-progress edit never gets stomped on
 // or loses cursor position from its own re-render.
+//
+// Plain text only, on purpose: the one remaining use of this component
+// is the sidebar nav labels, which are a rename, not prose -- every
+// other user-facing text field uses RichEditable below instead.
 function Editable({ as: Tag = "span", value, path, editing, onCommit, className, ...rest }) {
   const ref = useRef(null);
 
@@ -47,11 +51,10 @@ function Editable({ as: Tag = "span", value, path, editing, onCommit, className,
 
 // Same idea as Editable, but stores sanitized HTML instead of plain
 // text, so it can carry bold/italic/underline/alignment/font-size --
-// "standard word editing features" for the longer prose fields
-// (recap note, momentum highlights, store notes, etc). Only used where
-// that actually makes sense; short fields (names, labels, dates, stat
-// values) stay plain Editable. See lib/sanitize.js for the matching
-// server-side allowlist -- these are the only fields sanitized there.
+// "standard word editing features" -- on essentially every editable
+// text field on the dashboard. See lib/sanitize.js for the matching
+// server-side allowlist, which must stay in sync with every field that
+// uses this component instead of plain Editable.
 function RichEditable({ as: Tag = "div", value, path, editing, onCommit, className }) {
   const ref = useRef(null);
   const [focused, setFocused] = useState(false);
@@ -154,12 +157,31 @@ function fileToLogoDataUrl(file, maxDim = 220) {
 
 export default function Dashboard({ client, isStaff }) {
   const [content, setContent] = useState(client.content);
+
+  // The single source of truth for "what's on the page, in what order"
+  // -- and, expanded below, for the sidebar menu too, so adding,
+  // removing, or reordering a section always keeps the page and the
+  // menu in lockstep instead of needing to be wired up twice.
+  const sectionOrder =
+    content.sectionOrder && content.sectionOrder.length ? content.sectionOrder : DEFAULT_SECTION_ORDER;
+  const customSectionsById = Object.fromEntries((content.customSections || []).map((c) => [c.id, c]));
+  // reviewQuestions is one draggable block but renders two separate
+  // anchors ("Ready for Review" and "Questions & Requests"), so it's
+  // the one id that expands into two menu rows instead of one.
+  const navIds = sectionOrder.flatMap((id) => (id === "reviewQuestions" ? ["review", "questions"] : [id]));
+  function navLabelFor(id) {
+    const override = getPath(content, `nav.${id}`);
+    if (override != null) return override;
+    if (customSectionsById[id]) return customSectionsById[id].label;
+    return NAV_SECTIONS.find((s) => s.id === id)?.label || "Untitled section";
+  }
+
   const [accentColor, setAccentColor] = useState(client.accentColor || "#1f4d3a");
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [navOpen, setNavOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState(NAV_SECTIONS[0].id);
+  const [activeSection, setActiveSection] = useState(navIds[0]);
   const [logoBusy, setLogoBusy] = useState(false);
   const logoInputRef = useRef(null);
 
@@ -178,7 +200,7 @@ export default function Dashboard({ client, isStaff }) {
   // Scrollspy: highlight the sidebar link for whichever section is
   // nearest the top of the viewport.
   useEffect(() => {
-    const sections = NAV_SECTIONS.map((s) => document.getElementById(s.id)).filter(Boolean);
+    const sections = navIds.map((id) => document.getElementById(id)).filter(Boolean);
     if (!sections.length) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -190,7 +212,11 @@ export default function Dashboard({ client, isStaff }) {
     );
     sections.forEach((s) => observer.observe(s));
     return () => observer.disconnect();
-  }, []);
+    // Re-attach whenever the set of sections actually on the page
+    // changes (added, removed, or reordered), so a newly added section
+    // gets scroll-spied too and a removed one's stale id is dropped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content.sectionOrder, content.customSections]);
 
   const commit = useCallback((path, value) => {
     setContent((prev) => setPath(prev, path, value));
@@ -216,11 +242,55 @@ export default function Dashboard({ client, isStaff }) {
     });
   }, []);
 
-  const sectionOrder = content.sectionOrder && content.sectionOrder.length ? content.sectionOrder : DEFAULT_SECTION_ORDER;
   function reorderSections(from, to) {
     setContent((prev) => {
       const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
       return { ...prev, sectionOrder: arrayMove(cur, from, to) };
+    });
+  }
+
+  // Removing a section (built-in or custom) from the page and the menu
+  // together is just dropping its id from sectionOrder -- the render
+  // list below already skips any id it doesn't have a renderer for, and
+  // the sidebar nav is built from this same array (see the nav list
+  // render), so both update in one step, automatically. For a built-in
+  // section this is non-destructive: its underlying content (e.g.
+  // content.recap) is untouched, so "+ Add section" can bring it right
+  // back with everything still there. A custom section's own data is
+  // deleted along with it, since there's nowhere else for it to live.
+  function removeSection(id) {
+    setContent((prev) => {
+      const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
+      const next = { ...prev, sectionOrder: cur.filter((s) => s !== id) };
+      if (prev.customSections?.some((c) => c.id === id)) {
+        next.customSections = prev.customSections.filter((c) => c.id !== id);
+      }
+      return next;
+    });
+  }
+
+  // Brings a hidden built-in section back at the end of the page/menu.
+  function addBuiltinSection(id) {
+    setContent((prev) => {
+      const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
+      if (cur.includes(id)) return prev;
+      return { ...prev, sectionOrder: [...cur, id] };
+    });
+  }
+
+  // Creates a brand-new section and wires it into the menu in the same
+  // step -- there's no separate "connect this to the header" action,
+  // because the id that goes on sectionOrder here is the exact id the
+  // section renders itself under and the nav anchors to.
+  function addCustomSection() {
+    setContent((prev) => {
+      const section = ITEM_TEMPLATES.customSection();
+      const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
+      return {
+        ...prev,
+        customSections: [...(prev.customSections || []), section],
+        sectionOrder: [...cur, section.id],
+      };
     });
   }
 
@@ -293,8 +363,8 @@ export default function Dashboard({ client, isStaff }) {
       <section id="recap" className="section">
         <div className="section-head">
           <div>
-            <Editable className="eyebrow" value={content.recap.eyebrow} path="recap.eyebrow" editing={editing} onCommit={commit} />
-            <Editable as="h2" value={content.recap.heading} path="recap.heading" editing={editing} onCommit={commit} />
+            <RichEditable as="span" className="eyebrow" value={content.recap.eyebrow} path="recap.eyebrow" editing={editing} onCommit={commit} />
+            <RichEditable as="h2" value={content.recap.heading} path="recap.heading" editing={editing} onCommit={commit} />
           </div>
           <RichEditable as="p" className="section-note" value={content.recap.note} path="recap.note" editing={editing} onCommit={commit} />
         </div>
@@ -310,9 +380,9 @@ export default function Dashboard({ client, isStaff }) {
           {(stat, i) => (
             <>
               {editing && <RemoveBtn onClick={() => removeItem("recap.stats", i)} />}
-              <Editable as="div" className="stat-label" value={stat.label} path={`recap.stats.${i}.label`} editing={editing} onCommit={commit} />
-              <Editable as="div" className="stat-value" value={stat.value} path={`recap.stats.${i}.value`} editing={editing} onCommit={commit} />
-              <Editable
+              <RichEditable as="div" className="stat-label" value={stat.label} path={`recap.stats.${i}.label`} editing={editing} onCommit={commit} />
+              <RichEditable as="div" className="stat-value" value={stat.value} path={`recap.stats.${i}.value`} editing={editing} onCommit={commit} />
+              <RichEditable
                 as="div"
                 className={`stat-sub${stat.good ? " good" : ""}`}
                 value={stat.sub}
@@ -333,7 +403,7 @@ export default function Dashboard({ client, isStaff }) {
           <div className="glance-footnote">
             {content.recap.footnote.map((note, i) => (
               <span className="foot-pill" key={i}>
-                <Editable value={note} path={`recap.footnote.${i}`} editing={editing} onCommit={commit} />
+                <RichEditable as="span" value={note} path={`recap.footnote.${i}`} editing={editing} onCommit={commit} />
                 {editing && <RemoveBtn onClick={() => removeItem("recap.footnote", i)} />}
               </span>
             ))}
@@ -364,7 +434,7 @@ export default function Dashboard({ client, isStaff }) {
           {(m, i) => (
             <>
               <div className="card-top-row">
-                <Editable className="momentum-month" value={m.month} path={`momentum.items.${i}.month`} editing={editing} onCommit={commit} />
+                <RichEditable as="span" className="momentum-month" value={m.month} path={`momentum.items.${i}.month`} editing={editing} onCommit={commit} />
                 {editing && <RemoveBtn onClick={() => removeItem("momentum.items", i)} />}
               </div>
               <RichEditable as="p" value={m.text} path={`momentum.items.${i}.text`} editing={editing} onCommit={commit} />
@@ -396,7 +466,7 @@ export default function Dashboard({ client, isStaff }) {
           {(store, i) => (
             <>
               <div className="store-card-top">
-                <Editable className="store-name" value={store.name} path={`stores.items.${i}.name`} editing={editing} onCommit={commit} />
+                <RichEditable as="span" className="store-name" value={store.name} path={`stores.items.${i}.name`} editing={editing} onCommit={commit} />
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span className={`store-tag ${store.cls}`}>{store.tag}</span>
                   {editing && <RemoveBtn onClick={() => removeItem("stores.items", i)} />}
@@ -439,7 +509,7 @@ export default function Dashboard({ client, isStaff }) {
             {content.review.groups.map((group, gi) => (
               <div key={gi}>
                 <div className="review-group-label">
-                  <Editable value={group.label} path={`review.groups.${gi}.label`} editing={editing} onCommit={commit} />
+                  <RichEditable as="span" value={group.label} path={`review.groups.${gi}.label`} editing={editing} onCommit={commit} />
                   {editing && (
                     <button type="button" className="rm-btn edit-ctl" onClick={() => removeItem("review.groups", gi)} aria-label="Remove group">
                       &times;
@@ -457,8 +527,8 @@ export default function Dashboard({ client, isStaff }) {
                     <>
                       <div className="review-item-top">
                         <div>
-                          <Editable className="review-item-title" value={item.title} path={`review.groups.${gi}.items.${ii}.title`} editing={editing} onCommit={commit} />
-                          <Editable as="div" className="review-item-store" value={item.store} path={`review.groups.${gi}.items.${ii}.store`} editing={editing} onCommit={commit} />
+                          <RichEditable as="span" className="review-item-title" value={item.title} path={`review.groups.${gi}.items.${ii}.title`} editing={editing} onCommit={commit} />
+                          <RichEditable as="div" className="review-item-store" value={item.store} path={`review.groups.${gi}.items.${ii}.store`} editing={editing} onCommit={commit} />
                         </div>
                         {editing && <RemoveBtn onClick={() => removeItem(`review.groups.${gi}.items`, ii)} />}
                       </div>
@@ -497,10 +567,10 @@ export default function Dashboard({ client, isStaff }) {
               {(q, i) => (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                    <Editable className="question-store" value={q.store} path={`questions.items.${i}.store`} editing={editing} onCommit={commit} />
+                    <RichEditable as="span" className="question-store" value={q.store} path={`questions.items.${i}.store`} editing={editing} onCommit={commit} />
                     {editing && <RemoveBtn onClick={() => removeItem("questions.items", i)} />}
                   </div>
-                  <Editable as="div" className="question-title" value={q.title} path={`questions.items.${i}.title`} editing={editing} onCommit={commit} />
+                  <RichEditable as="div" className="question-title" value={q.title} path={`questions.items.${i}.title`} editing={editing} onCommit={commit} />
                   {(q.excerpt || editing) && (
                     <RichEditable as="div" className="question-excerpt" value={q.excerpt} path={`questions.items.${i}.excerpt`} editing={editing} onCommit={commit} />
                   )}
@@ -533,7 +603,7 @@ export default function Dashboard({ client, isStaff }) {
         <div className="work-grid">
           {content.working.columns.map((col, ci) => (
             <div className="work-col" key={ci}>
-              <Editable as="h4" value={col.label} path={`working.columns.${ci}.label`} editing={editing} onCommit={commit} />
+              <RichEditable as="h4" value={col.label} path={`working.columns.${ci}.label`} editing={editing} onCommit={commit} />
               <SortableGroup
                 idPrefix={`working.columns.${ci}.items`}
                 items={col.items}
@@ -548,7 +618,7 @@ export default function Dashboard({ client, isStaff }) {
                     <span className="work-check">
                       <CheckIcon />
                     </span>
-                    <Editable as="span" className="work-item-text" value={item} path={`working.columns.${ci}.items.${ii}`} editing={editing} onCommit={commit} />
+                    <RichEditable as="span" className="work-item-text" value={item} path={`working.columns.${ci}.items.${ii}`} editing={editing} onCommit={commit} />
                     {editing && <RemoveBtn onClick={() => removeItem(`working.columns.${ci}.items`, ii)} />}
                   </>
                 )}
@@ -584,7 +654,7 @@ export default function Dashboard({ client, isStaff }) {
               <span className="dot">
                 <CheckIcon />
               </span>
-              <Editable value={item} path={`approved.items.${i}`} editing={editing} onCommit={commit} />
+              <RichEditable as="span" value={item} path={`approved.items.${i}`} editing={editing} onCommit={commit} />
               {editing && <RemoveBtn onClick={() => removeItem("approved.items", i)} />}
             </>
           )}
@@ -616,12 +686,12 @@ export default function Dashboard({ client, isStaff }) {
               {(ev, i) => (
                 <>
                   <div className="event-date">
-                    <Editable as="div" className="num" value={ev.day} path={`events.items.${i}.day`} editing={editing} onCommit={commit} />
-                    <Editable as="div" className="mon" value={ev.mon} path={`events.items.${i}.mon`} editing={editing} onCommit={commit} />
+                    <RichEditable as="div" className="num" value={ev.day} path={`events.items.${i}.day`} editing={editing} onCommit={commit} />
+                    <RichEditable as="div" className="mon" value={ev.mon} path={`events.items.${i}.mon`} editing={editing} onCommit={commit} />
                   </div>
                   <div className="event-main">
-                    <Editable className="event-title" value={ev.title} path={`events.items.${i}.title`} editing={editing} onCommit={commit} />
-                    <Editable as="div" className="event-loc" value={ev.loc} path={`events.items.${i}.loc`} editing={editing} onCommit={commit} />
+                    <RichEditable as="span" className="event-title" value={ev.title} path={`events.items.${i}.title`} editing={editing} onCommit={commit} />
+                    <RichEditable as="div" className="event-loc" value={ev.loc} path={`events.items.${i}.loc`} editing={editing} onCommit={commit} />
                   </div>
                   {editing && <RemoveBtn onClick={() => removeItem("events.items", i)} />}
                 </>
@@ -641,11 +711,11 @@ export default function Dashboard({ client, isStaff }) {
               {(m, i) => (
                 <>
                   <div>
-                    <Editable className="cadence-name" value={m.name} path={`meetings.items.${i}.name`} editing={editing} onCommit={commit} />
-                    <Editable as="div" className="cadence-freq" value={m.freq} path={`meetings.items.${i}.freq`} editing={editing} onCommit={commit} />
+                    <RichEditable as="span" className="cadence-name" value={m.name} path={`meetings.items.${i}.name`} editing={editing} onCommit={commit} />
+                    <RichEditable as="div" className="cadence-freq" value={m.freq} path={`meetings.items.${i}.freq`} editing={editing} onCommit={commit} />
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <Editable className="cadence-next" value={m.next} path={`meetings.items.${i}.next`} editing={editing} onCommit={commit} />
+                    <RichEditable as="span" className="cadence-next" value={m.next} path={`meetings.items.${i}.next`} editing={editing} onCommit={commit} />
                     {editing && <RemoveBtn onClick={() => removeItem("meetings.items", i)} />}
                   </div>
                 </>
@@ -658,6 +728,48 @@ export default function Dashboard({ client, isStaff }) {
     );
   }
 
+  // A user-added section: a headline, an optional note, and an
+  // orderable list of short cards. Its menu label is edited from the
+  // sidebar nav list (like every built-in section's label), not here,
+  // so there's exactly one place to rename it rather than two fields
+  // that could drift out of sync.
+  function renderCustom(section, idx) {
+    return (
+      <section id={section.id} className="section">
+        <div className="section-head">
+          <div>
+            <RichEditable as="h2" value={section.heading} path={`customSections.${idx}.heading`} editing={editing} onCommit={commit} />
+          </div>
+          {(section.note || editing) && (
+            <RichEditable as="p" className="section-note" value={section.note} path={`customSections.${idx}.note`} editing={editing} onCommit={commit} />
+          )}
+        </div>
+
+        <SortableGroup
+          idPrefix={`customSections.${idx}.items`}
+          items={section.items}
+          onReorder={(from, to) => reorder(`customSections.${idx}.items`, from, to)}
+          disabled={!editing}
+          listClassName="momentum-grid"
+          rowClassName="momentum-card"
+        >
+          {(item, ii) => (
+            <>
+              {editing && <RemoveBtn onClick={() => removeItem(`customSections.${idx}.items`, ii)} />}
+              <RichEditable as="p" value={item.text} path={`customSections.${idx}.items.${ii}.text`} editing={editing} onCommit={commit} />
+            </>
+          )}
+        </SortableGroup>
+        {editing && (
+          <div style={{ marginTop: 10 }}>
+            <AddBtn label="Add card" onClick={() => addItem(`customSections.${idx}.items`, ITEM_TEMPLATES.customSectionItem)} />
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  const customSections = content.customSections || [];
   const sectionRenderers = {
     recap: renderRecap,
     momentum: renderMomentum,
@@ -666,7 +778,16 @@ export default function Dashboard({ client, isStaff }) {
     working: renderWorking,
     approved: renderApproved,
     upcoming: renderUpcoming,
+    ...Object.fromEntries(
+      customSections.map((section, idx) => [section.id, () => renderCustom(section, idx)])
+    ),
   };
+
+  // Which built-in sections aren't currently on the page -- offered
+  // back via "+ Add section" below rather than always shown, so
+  // re-adding one is a single click instead of hunting for a hidden
+  // toggle somewhere.
+  const hiddenBuiltins = BUILTIN_SECTIONS.filter((s) => !sectionOrder.includes(s.id));
 
   return (
     <div className="shell" style={brandVars(accentColor)}>
@@ -692,23 +813,22 @@ export default function Dashboard({ client, isStaff }) {
         </div>
 
         <ul className="side-nav">
-          {NAV_SECTIONS.map((s) => {
-            const label = getPath(content, `nav.${s.id}`) ?? s.label;
+          {navIds.map((id) => {
+            const label = navLabelFor(id);
+            const custom = customSectionsById[id];
+            const editPath = custom
+              ? `customSections.${(content.customSections || []).findIndex((c) => c.id === id)}.label`
+              : `nav.${id}`;
             return (
-              <li key={s.id}>
+              <li key={id}>
                 {editing ? (
-                  <div className={`nav-label-edit${activeSection === s.id ? " active" : ""}`}>
-                    <Editable
-                      value={label}
-                      path={`nav.${s.id}`}
-                      editing={editing}
-                      onCommit={commit}
-                    />
+                  <div className={`nav-label-edit${activeSection === id ? " active" : ""}`}>
+                    <Editable value={label} path={editPath} editing={editing} onCommit={commit} />
                   </div>
                 ) : (
                   <a
-                    href={`#${s.id}`}
-                    className={activeSection === s.id ? "active" : ""}
+                    href={`#${id}`}
+                    className={activeSection === id ? "active" : ""}
                     onClick={() => setNavOpen(false)}
                   >
                     {label}
@@ -795,7 +915,7 @@ export default function Dashboard({ client, isStaff }) {
               )}
             </div>
             <div className="masthead-meta">
-              <Editable
+              <RichEditable
                 as="div"
                 className="client-name"
                 value={content.meta.clientName}
@@ -822,18 +942,48 @@ export default function Dashboard({ client, isStaff }) {
             disabled={!editing}
             rowClassName="section-drag-wrap"
           >
-            {(sectionId) => (sectionRenderers[sectionId] ? sectionRenderers[sectionId]() : null)}
+            {(sectionId) => (
+              <>
+                {sectionRenderers[sectionId] ? sectionRenderers[sectionId]() : null}
+                {editing && (
+                  <button
+                    type="button"
+                    className="section-remove-btn edit-ctl"
+                    onClick={() => removeSection(sectionId)}
+                    title="Remove this section from the page and the menu"
+                  >
+                    Remove section
+                  </button>
+                )}
+              </>
+            )}
           </SortableGroup>
+
+          {editing && (
+            <div className="add-section-row">
+              <AddBtn label="New section" onClick={addCustomSection} />
+              {hiddenBuiltins.map((s) => (
+                <button
+                  type="button"
+                  key={s.id}
+                  className="add-back-btn edit-ctl"
+                  onClick={() => addBuiltinSection(s.id)}
+                >
+                  + Bring back &ldquo;{s.label}&rdquo;
+                </button>
+              ))}
+            </div>
+          )}
 
           <footer className="footer">
             <div>
-              <Editable as="strong" value={content.meta.contactName} path="meta.contactName" editing={editing} onCommit={commit} />
+              <RichEditable as="strong" value={content.meta.contactName} path="meta.contactName" editing={editing} onCommit={commit} />
               {" · "}
-              <Editable value={content.meta.contactTitle} path="meta.contactTitle" editing={editing} onCommit={commit} />
+              <RichEditable as="span" value={content.meta.contactTitle} path="meta.contactTitle" editing={editing} onCommit={commit} />
               {" · "}
-              <Editable value={content.meta.contactEmail} path="meta.contactEmail" editing={editing} onCommit={commit} />
+              <RichEditable as="span" value={content.meta.contactEmail} path="meta.contactEmail" editing={editing} onCommit={commit} />
               {" · "}
-              <Editable value={content.meta.contactPhone} path="meta.contactPhone" editing={editing} onCommit={commit} />
+              <RichEditable as="span" value={content.meta.contactPhone} path="meta.contactPhone" editing={editing} onCommit={commit} />
             </div>
             <RichEditable value={content.meta.footerNote} path="meta.footerNote" editing={editing} onCommit={commit} />
           </footer>

@@ -37,6 +37,14 @@ export function blankContent(clientName) {
     // this object at all, so Dashboard.js always falls back to
     // NAV_SECTIONS' label when a key is missing.
     nav: Object.fromEntries(NAV_SECTIONS.map((s) => [s.id, s.label])),
+    // User-added sections beyond the built-in seven -- each gets pushed
+    // onto sectionOrder under its own generated id when created, so it
+    // automatically gets its own nav row and page anchor together (see
+    // addCustomSection in Dashboard.js). A custom section's `label` is
+    // its own nav text, edited directly at customSections.<i>.label --
+    // unlike a built-in section, it doesn't need a separate content.nav
+    // override, since nothing else refers to it by a fixed name.
+    customSections: [],
     recap: {
       eyebrow: "Performance recap",
       heading: "Add this month's headline",
@@ -78,7 +86,36 @@ export const ITEM_TEMPLATES = {
   eventItem: () => ({ mon: "JAN", day: "01", title: "New event", loc: "Location" }),
   meetingItem: () => ({ name: "New meeting", freq: "Frequency", next: "Date" }),
   statItem: () => ({ label: "New stat", value: "0", sub: "context", good: false }),
+  // A brand-new, freeform section: a headline, an optional note, and
+  // an orderable list of short rich-text cards -- the same shape as
+  // Momentum, since that's the simplest "heading + a few cards" layout
+  // already in use. `id` is generated once here and never changes, so
+  // it stays a stable anchor even if the section gets renamed later.
+  customSection: () => ({
+    id: `custom-${Math.random().toString(36).slice(2, 8)}`,
+    label: "New Section",
+    heading: "Add a headline",
+    note: "",
+    items: [],
+  }),
+  customSectionItem: () => ({ text: "Add details…" }),
 };
+
+// The built-in sections at the sectionOrder level (one entry per
+// draggable block on the page -- note "Ready for Review" and
+// "Questions & Requests" share a single block, reviewQuestions, since
+// they render together as one two-column layout). Used to offer
+// "add this section back" once a client has removed it from
+// sectionOrder; see Dashboard.js.
+export const BUILTIN_SECTIONS = [
+  { id: "recap", label: "Performance Recap" },
+  { id: "momentum", label: "Momentum" },
+  { id: "stores", label: "Store Spotlights" },
+  { id: "reviewQuestions", label: "Ready for Review & Questions" },
+  { id: "working", label: "Working On" },
+  { id: "approved", label: "Approved & Live" },
+  { id: "upcoming", label: "Events & Meetings" },
+];
 
 export const NAV_SECTIONS = [
   { id: "recap", label: "Performance Recap" },
