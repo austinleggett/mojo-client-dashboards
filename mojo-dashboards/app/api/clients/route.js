@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { isStaffRequest } from "@/lib/auth";
+import { isAuthorizedRequest } from "@/lib/auth";
 import { blankContent, makeSlug } from "@/lib/contentTemplate";
 
-// GET /api/clients -- staff-only list, used by the admin dashboard.
+// GET /api/clients -- list, used by the admin dashboard. Staff cookie
+// or an AUTOMATION_TOKEN bearer token both work (see lib/auth.js).
 export async function GET(request) {
-  if (!isStaffRequest(request)) {
-    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  if (!isAuthorizedRequest(request)) {
+    return NextResponse.json({ error: "Not authorized." }, { status: 401 });
   }
   const clients = await prisma.client.findMany({
     orderBy: { updatedAt: "desc" },
@@ -15,10 +16,13 @@ export async function GET(request) {
   return NextResponse.json({ clients });
 }
 
-// POST /api/clients -- staff-only create. Body: { name, accentColor? }
+// POST /api/clients -- create a client. Body: { name, accentColor?, content? }.
+// `content` is optional and lets an automated caller create a client
+// fully populated in one call instead of blank-then-edit; omit it to
+// get the normal blank starting point.
 export async function POST(request) {
-  if (!isStaffRequest(request)) {
-    return NextResponse.json({ error: "Not signed in." }, { status: 401 });
+  if (!isAuthorizedRequest(request)) {
+    return NextResponse.json({ error: "Not authorized." }, { status: 401 });
   }
   const body = await request.json().catch(() => ({}));
   const name = String(body.name || "").trim();
@@ -39,7 +43,7 @@ export async function POST(request) {
       slug,
       name,
       accentColor: body.accentColor || "#1f4d3a",
-      content: blankContent(name),
+      content: body.content && typeof body.content === "object" ? body.content : blankContent(name),
     },
   });
 
