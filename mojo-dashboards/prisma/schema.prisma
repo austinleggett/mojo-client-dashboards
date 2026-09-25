@@ -1,0 +1,29 @@
+// Prisma schema for Mountain Mojo's client dashboard app.
+// One table. Each client's entire dashboard (stats, momentum, stores,
+// review items, questions, tasks, approved items, events, meetings) is
+// stored as a single JSON blob in `content`, the same shape the page
+// renders from. This keeps adding new sections/fields a code change,
+// not a database migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id          String   @id @default(cuid())
+  // Long, unguessable slug used in the private client link: /c/<slug>.
+  // Not just a pretty name-based slug -- includes a random suffix so
+  // the URL itself can't be guessed by trying company names.
+  slug        String   @unique
+  name        String
+  active      Boolean  @default(true)
+  accentColor String   @default("#1f4d3a")
+  content     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
