@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { blankContent, makeSlug } from "@/lib/contentTemplate";
+import { sanitizeContent } from "@/lib/sanitize";
 
 // GET /api/clients -- list, used by the admin dashboard. Staff cookie
 // or an AUTOMATION_TOKEN bearer token both work (see lib/auth.js).
@@ -43,7 +44,9 @@ export async function POST(request) {
       slug,
       name,
       accentColor: body.accentColor || "#1f4d3a",
-      content: body.content && typeof body.content === "object" ? body.content : blankContent(name),
+      content: sanitizeContent(
+        body.content && typeof body.content === "object" ? body.content : blankContent(name)
+      ),
     },
   });
 

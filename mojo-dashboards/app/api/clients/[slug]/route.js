@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isAuthorizedRequest } from "@/lib/auth";
+import { sanitizeContent } from "@/lib/sanitize";
 
 // GET is intentionally public -- this is what the client's private
 // dashboard link reads. Access control is "you have the unguessable
@@ -17,6 +18,12 @@ export async function GET(_request, { params }) {
 
 // PUT (save edits) and DELETE require the staff cookie or an
 // AUTOMATION_TOKEN bearer token.
+//
+// Body: { content, accentColor? }. `content` is sanitized here (the
+// handful of rich-text fields get run through sanitize-html; every
+// other field passes through untouched -- see lib/sanitize.js) so a
+// malicious or malformed edit can never persist as live HTML on the
+// public dashboard link, regardless of which door it came through.
 export async function PUT(request, { params }) {
   if (!isAuthorizedRequest(request)) {
     return NextResponse.json({ error: "Not authorized." }, { status: 401 });
@@ -26,10 +33,15 @@ export async function PUT(request, { params }) {
     return NextResponse.json({ error: "Missing content." }, { status: 400 });
   }
 
+  const data = { content: sanitizeContent(body.content) };
+  if (typeof body.accentColor === "string" && body.accentColor.trim()) {
+    data.accentColor = body.accentColor.trim();
+  }
+
   try {
     const client = await prisma.client.update({
       where: { slug: params.slug },
-      data: { content: body.content },
+      data,
     });
     return NextResponse.json({ client, content: client.content });
   } catch {

@@ -315,3 +315,46 @@ body.editing .edit-ctl { display: inline-flex; }
 .not-found-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; text-align: center; padding: 24px; }
 .not-found-shell h1 { font-size: 20px; font-weight: 800; }
 .not-found-shell p { color: var(--ink-soft); font-size: 13.5px; }
+
+/* ================= Rich text formatting ================= */
+.rich-field { position: relative; }
+.section-head > .rich-field { max-width: 42ch; }
+
+.format-toolbar {
+  display: inline-flex; align-items: center; gap: 2px; margin-bottom: 6px; padding: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow);
+}
+.format-toolbar button {
+  width: 24px; height: 24px; border: none; background: transparent; border-radius: 5px;
+  font-size: 12.5px; color: var(--ink-soft); display: flex; align-items: center; justify-content: center;
+}
+.format-toolbar button:hover { background: var(--surface-sunken); color: var(--ink); }
+.format-toolbar button.fs-btn { font-weight: 800; font-size: 11px; }
+.format-toolbar .toolbar-sep { width: 1px; align-self: stretch; margin: 2px 3px; background: var(--border); }
+
+/* ================= Drag-and-drop reordering ================= */
+.drag-handle {
+  border: none; background: transparent; color: var(--ink-faint); font-size: 13px; line-height: 1;
+  width: 20px; height: 20px; border-radius: 5px; flex: none; cursor: grab; touch-action: none; user-select: none;
+  margin-right: 4px;
+}
+.drag-handle:hover { background: var(--surface-sunken); color: var(--ink-soft); }
+.drag-handle:active { cursor: grabbing; }
+.section-drag-wrap { position: relative; }
+.section-drag-wrap > .drag-handle {
+  position: absolute; left: -6px; top: 46px; background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--shadow); z-index: 3;
+}
+
+/* ================= Branding: client logo + brand color ================= */
+.client-logo-wrap { display: flex; align-items: center; gap: 10px; margin-left: 8px; }
+.client-logo { max-height: 34px; max-width: 140px; object-fit: contain; border-radius: 4px; background: rgba(255,255,255,.9); padding: 3px 6px; }
+.client-logo-btn { font-size: 11.5px; padding: 6px 10px; white-space: nowrap; }
+
+.brand-color-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+  font-size: 12px; font-weight: 700; color: var(--ink-soft);
+}
+.brand-color-row input[type="color"] {
+  width: 30px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer;
+}

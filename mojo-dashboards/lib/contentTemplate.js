@@ -2,6 +2,21 @@
 // starting point for a brand-new client. Keep this in sync with the
 // sections the Dashboard component knows how to render.
 
+// The order the dashboard's top-level sections render in. Draggable in
+// edit mode (see Dashboard.js) -- a client's saved order lives at
+// content.sectionOrder; this is only the default for new clients and
+// the fallback for older clients saved before section reordering
+// existed.
+export const DEFAULT_SECTION_ORDER = [
+  "recap",
+  "momentum",
+  "stores",
+  "reviewQuestions",
+  "working",
+  "approved",
+  "upcoming",
+];
+
 export function blankContent(clientName) {
   return {
     meta: {
@@ -13,7 +28,9 @@ export function blankContent(clientName) {
       contactPhone: "480-292-0273",
       footerNote: `Prepared for ${clientName || "your client"} · Updated monthly`,
       updatedAt: new Date().toISOString(),
+      clientLogo: "",
     },
+    sectionOrder: DEFAULT_SECTION_ORDER.slice(),
     recap: {
       eyebrow: "Performance recap",
       heading: "Add this month's headline",

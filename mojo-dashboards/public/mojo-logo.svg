@@ -1,0 +1,13 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mountain Mojo Group">
+  <!--
+    PLACEHOLDER MARK -- not Mountain Mojo's real logo. This is a simple
+    geometric stand-in (two peaks + a sun) drawn in the brand's own
+    green/gold so the masthead isn't showing an emoji, until the real
+    logo file is dropped in at this same path (public/mojo-logo.svg,
+    or update the <img> src in components/Dashboard.js if it's a
+    different filename/format).
+  -->
+  <circle cx="45" cy="16" r="7" fill="#b9852f" />
+  <path d="M2 50 L22 20 L32 34 L40 22 L62 50 Z" fill="#fdfdf9" />
+  <path d="M32 34 L40 22 L62 50 L46 50 Z" fill="#e4ede6" />
+</svg>
