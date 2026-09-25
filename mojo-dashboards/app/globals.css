@@ -365,6 +365,11 @@ body.editing .edit-ctl { display: inline-flex; }
 }
 .format-toolbar button:hover { background: var(--surface-sunken); color: var(--ink); }
 .format-toolbar button.fs-btn { font-weight: 800; font-size: 11px; }
+.format-toolbar button.color-btn {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--swatch); border: 1px solid rgba(0,0,0,.15);
+  margin: 0 1px; padding: 0;
+}
+.format-toolbar button.color-btn:hover { outline: 2px solid var(--border); outline-offset: 1px; }
 .format-toolbar .toolbar-sep { width: 1px; align-self: stretch; margin: 2px 3px; background: var(--border); }
 
 /* ================= Drag-and-drop reordering ================= */

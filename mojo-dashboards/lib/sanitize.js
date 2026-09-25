@@ -76,6 +76,10 @@ const ALLOWED_STYLES = {
   "text-decoration": [/^underline$/, /^none$/],
   "text-align": [/^(left|center|right|justify)$/],
   "font-size": [/^\d{1,3}(\.\d+)?(px|em|rem|%)$/],
+  // Hex only -- matches exactly what FormatToolbar's preset swatches
+  // write (see components/FormatToolbar.js), never an arbitrary
+  // css value.
+  color: [/^#[0-9a-f]{3,8}$/i],
 };
 
 export function sanitizeRichText(html) {
