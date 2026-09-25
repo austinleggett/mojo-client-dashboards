@@ -69,3 +69,27 @@ export function isStaffRequest(request) {
   const token = request.cookies.get(STAFF_COOKIE)?.value;
   return isValidSessionToken(token);
 }
+
+// A second, separate door into the write endpoints for automated
+// callers (Claude, a script) that aren't signing in through a browser
+// -- so they never need STAFF_PASSWORD or a session cookie. Checked
+// via `Authorization: Bearer <AUTOMATION_TOKEN>`. Deliberately its own
+// secret, not reused from SESSION_SECRET or STAFF_PASSWORD, so it can
+// be rotated on its own without logging your team out.
+export function isAutomationRequest(request) {
+  const expected = process.env.AUTOMATION_TOKEN;
+  if (!expected) return false; // unset = this door is closed, not "anything goes"
+  const header = request.headers.get("authorization") || "";
+  const match = /^Bearer (.+)$/.exec(header);
+  if (!match) return false;
+  const a = Buffer.from(match[1]);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+// True if the request is allowed to make write calls, whichever door
+// it came through.
+export function isAuthorizedRequest(request) {
+  return isStaffRequest(request) || isAutomationRequest(request);
+}
