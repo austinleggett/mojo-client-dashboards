@@ -5,6 +5,8 @@ import { NAV_SECTIONS, BUILTIN_SECTIONS, ITEM_TEMPLATES, DEFAULT_SECTION_ORDER }
 import { getPath, setPath, pushAt, removeAt } from "@/lib/path";
 import { SortableGroup, arrayMove } from "@/components/Sortable";
 import FormatToolbar from "@/components/FormatToolbar";
+import ThemeToggle from "@/components/ThemeToggle";
+import { useTheme } from "@/lib/theme";
 
 // Two small contexts so RichEditable (defined once, used ~40+ times
 // across this file) can register itself with, and read its selection
@@ -303,13 +305,34 @@ function mix(hex, target, amount) {
   const mixed = rgb.map((c, i) => Math.round(c + (target[i] - c) * amount));
   return `rgb(${mixed.join(",")})`;
 }
-function brandVars(accentColor) {
+// `isDark` is the *resolved* light/dark state from useTheme() below --
+// true for an explicit "Dark" choice, or "Auto" while the system is in
+// dark mode. Two different jobs, on purpose:
+//
+// --brand-solid / --brand-solid-strong are for a *solid* colored
+// surface that always carries fixed white text on top (the masthead
+// gradient, see .masthead in globals.css) -- these stay the client's
+// literal chosen color and its darkened partner in every theme, full
+// stop, the same way a real printed logo doesn't get lighter at night.
+//
+// --brand / --brand-strong / --brand-tint are for *text and tinted
+// backgrounds* elsewhere on the page (the active nav link, an eyebrow
+// label, an event date, a due-soon chip...) sitting on top of the
+// page's own light-or-dark surface color. Before this split, these
+// were computed once, the same way, regardless of theme -- which
+// happened to look fine in light mode (a darkened accent reads fine on
+// a light surface) but meant dark mode got the *exact same* dark,
+// low-contrast text color sitting on its own now-dark surface, which
+// is most of what made dark mode "hard to read" in the first place.
+function brandVars(accentColor, isDark) {
   const rgb = hexToRgb(accentColor);
   if (!rgb) return {};
   return {
-    "--brand": accentColor,
-    "--brand-strong": mix(accentColor, [0, 0, 0], 0.28),
-    "--brand-tint": mix(accentColor, [255, 255, 255], 0.88),
+    "--brand-solid": accentColor,
+    "--brand-solid-strong": mix(accentColor, [0, 0, 0], 0.28),
+    "--brand": isDark ? mix(accentColor, [255, 255, 255], 0.55) : accentColor,
+    "--brand-strong": isDark ? mix(accentColor, [255, 255, 255], 0.72) : mix(accentColor, [0, 0, 0], 0.28),
+    "--brand-tint": isDark ? mix(accentColor, [0, 0, 0], 0.8) : mix(accentColor, [255, 255, 255], 0.88),
   };
 }
 
@@ -454,6 +477,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
   }
 
   const [accentColor, setAccentColor] = useState(client.accentColor || "#1f4d3a");
+  const { theme, isDark, setTheme } = useTheme();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
@@ -1313,7 +1337,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
   return (
     <FieldActionsContext.Provider value={fieldActions}>
     <FieldSelectionContext.Provider value={selectedFields}>
-    <div className="shell" style={brandVars(accentColor)}>
+    <div className="shell" style={brandVars(accentColor, isDark)}>
       {editing && (
         <FormatToolbar
           selectionCount={selectedFields.length}
@@ -1324,6 +1348,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
           onAlign={applyAlign}
           onFontSize={applyFontSize}
           onColor={applyColor}
+          onClearColor={() => applyColor("inherit")}
           onBgColor={applyBgColor}
           onClearBg={applyClearBg}
           onUndo={undo}
@@ -1379,6 +1404,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
         </ul>
 
         <div className="side-foot">
+          <ThemeToggle theme={theme} onChange={setTheme} />
           <div className="side-updated">Last updated {updatedLabel}</div>
           {isStaff && (
             <>

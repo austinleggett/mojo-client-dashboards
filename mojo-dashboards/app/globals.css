@@ -14,6 +14,19 @@ html, body { margin: 0; padding: 0; }
   --brand: #1f4d3a;
   --brand-strong: #163a2c;
   --brand-tint: #e4ede6;
+  /* Fixed, theme-independent brand color for a *solid* colored surface
+     that always carries fixed white/off-white text on top (the
+     masthead gradient, the mobile menu button, login/primary buttons,
+     text selection highlight) -- never redefined in the dark-mode
+     blocks below, and never touched by a client's own accent color
+     (see brandVars() in Dashboard.js), so those surfaces stay exactly
+     as dark -- and exactly as readable with white text -- in every
+     theme and for every client. --brand/--brand-strong above are for
+     *text and tinted backgrounds* instead, and those do adapt per
+     theme so they stay readable against whichever surface color is
+     currently showing. */
+  --brand-solid: #1f4d3a;
+  --brand-solid-strong: #163a2c;
   --gold: #b9852f;
   --gold-tint: #faf1de;
   --good: #2f7a4f;
@@ -51,7 +64,7 @@ body {
 }
 h1, h2, h3, h4, .eyebrow, .stat-value, .nav-brand, .side-title { font-family: 'Libre Franklin', system-ui, sans-serif; }
 h1, h2, h3, h4 { text-wrap: balance; margin: 0; }
-::selection { background: var(--brand); color: #fff; }
+::selection { background: var(--brand-solid); color: #fff; }
 a { color: var(--brand-strong); }
 button { font-family: inherit; cursor: pointer; }
 input { font-family: inherit; }
@@ -111,6 +124,22 @@ input { font-family: inherit; }
 .side-link { display: block; text-align: center; font-size: 11.5px; color: var(--ink-faint); text-decoration: none; margin-top: 4px; }
 .side-link:hover { color: var(--ink-soft); }
 
+/* ---------- Light / dark / auto toggle ----------
+   Shown to every viewer (staff and client alike), not just while
+   editing -- this is "how do I want to look at this," not a content
+   change. A plain 3-segment pill, same family as .side-btn, rather
+   than a sun/moon icon that has to be guessed at. */
+.theme-toggle {
+  display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; margin-bottom: 10px;
+}
+.theme-toggle-btn {
+  flex: 1; border: none; background: var(--surface-sunken); color: var(--ink-soft);
+  font-size: 11.5px; font-weight: 700; padding: 7px 4px;
+}
+.theme-toggle-btn + .theme-toggle-btn { border-left: 1px solid var(--border); }
+.theme-toggle-btn:hover { color: var(--ink); }
+.theme-toggle-btn.on { background: var(--edit); color: #fff; }
+
 .content { flex: 1; min-width: 0; }
 
 /* ---------- Masthead ----------
@@ -122,7 +151,7 @@ input { font-family: inherit; }
    Marketing Strategist the client actually works with sit together in
    a small, secondary spot on the right. */
 .masthead {
-  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
+  background: linear-gradient(135deg, var(--brand-solid) 0%, var(--brand-solid-strong) 100%);
   color: #fdfdf9; position: relative; overflow: hidden;
 }
 .masthead::before {
@@ -156,7 +185,12 @@ input { font-family: inherit; }
    -- same idea as the strategist photo placeholder below -- so the
    header never looks broken or empty before one's uploaded. */
 .client-logo-placeholder {
-  width: 100%; height: 100%; color: var(--brand-strong);
+  /* --brand-solid-strong (fixed), not --brand-strong (theme-adaptive)
+     -- this sits on a background the client/staff picked directly
+     (clientLogoBg, default a fixed off-white), which doesn't itself
+     change with light/dark mode, so the text on top of it can't
+     either without breaking contrast against it. */
+  width: 100%; height: 100%; color: var(--brand-solid-strong);
   display: flex; align-items: center; justify-content: center; font-family: 'Libre Franklin', sans-serif;
   font-weight: 800; font-size: 52px;
 }
@@ -195,7 +229,8 @@ input { font-family: inherit; }
   width: 62px; height: 62px; border-radius: 999px; object-fit: cover;
 }
 .strategist-photo-placeholder {
-  background: #fdfdf9; color: var(--brand-strong); display: flex; align-items: center; justify-content: center;
+  /* Same fixed-background reasoning as .client-logo-placeholder above. */
+  background: #fdfdf9; color: var(--brand-solid-strong); display: flex; align-items: center; justify-content: center;
   font-family: 'Libre Franklin', sans-serif; font-weight: 800; font-size: 23px;
 }
 .strategist-photo-btn {
@@ -436,7 +471,7 @@ body.editing .edit-ctl { display: inline-flex; }
   .sidebar.open { transform: translateX(0); }
   .mobile-nav-toggle {
     display: flex; position: fixed; top: 14px; left: 14px; z-index: 31; align-items: center; gap: 6px;
-    background: var(--brand); color: #fff; border: none; border-radius: 999px; padding: 9px 14px; font-size: 12.5px; font-weight: 700;
+    background: var(--brand-solid); color: #fff; border: none; border-radius: 999px; padding: 9px 14px; font-size: 12.5px; font-weight: 700;
     box-shadow: var(--shadow);
   }
   .shell { display: block; }
@@ -447,7 +482,7 @@ body.editing .edit-ctl { display: inline-flex; }
 /* ================= Staff login ================= */
 .login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .login-card { width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 32px 28px; box-shadow: var(--shadow); }
-.login-mark { width: 40px; height: 40px; border-radius: 10px; background: var(--brand); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+.login-mark { width: 40px; height: 40px; border-radius: 10px; background: var(--brand-solid); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
 .login-card h1 { font-size: 19px; font-weight: 800; margin-bottom: 4px; }
 .login-card p.sub { font-size: 13px; color: var(--ink-soft); margin: 0 0 20px; }
 .login-input {
@@ -456,10 +491,10 @@ body.editing .edit-ctl { display: inline-flex; }
 }
 .login-input:focus { outline: 2px solid var(--edit); outline-offset: 1px; background: var(--surface); }
 .login-btn {
-  width: 100%; border: none; background: var(--brand); color: #fff; font-weight: 700; font-size: 14px;
+  width: 100%; border: none; background: var(--brand-solid); color: #fff; font-weight: 700; font-size: 14px;
   padding: 11px; border-radius: 9px;
 }
-.login-btn:hover { background: var(--brand-strong); }
+.login-btn:hover { background: var(--brand-solid-strong); }
 .login-error { background: var(--bad-tint); color: var(--bad); font-size: 12.5px; font-weight: 600; padding: 9px 12px; border-radius: 8px; margin-bottom: 12px; }
 
 /* ================= Admin ================= */
@@ -471,8 +506,8 @@ body.editing .edit-ctl { display: inline-flex; }
   display: inline-flex; align-items: center; gap: 7px; border: none; border-radius: 9px; font-weight: 700; font-size: 13.5px;
   padding: 10px 16px; text-decoration: none; cursor: pointer;
 }
-.btn-primary { background: var(--brand); color: #fff; }
-.btn-primary:hover { background: var(--brand-strong); }
+.btn-primary { background: var(--brand-solid); color: #fff; }
+.btn-primary:hover { background: var(--brand-solid-strong); }
 .btn-ghost { background: var(--surface-sunken); color: var(--ink); border: 1px solid var(--border); }
 
 .client-list { display: flex; flex-direction: column; gap: 10px; }
@@ -578,6 +613,18 @@ body.editing .edit-ctl { display: inline-flex; }
   margin: 0 1px; padding: 0;
 }
 .top-format-bar button.color-btn:hover { outline: 2px solid var(--border); outline-offset: 1px; }
+/* "Auto" text color -- clears any explicit color rather than writing
+   one, so the text goes back to following whatever theme is showing
+   (see applyColor("inherit") in Dashboard.js) instead of being locked
+   to a fixed hex that used to just be light mode's own ink color. A
+   small diagonal-slash swatch reads as "no color set", distinct from
+   the fixed color dots next to it. */
+.top-format-bar button.color-reset-btn {
+  width: 19px; height: 19px; border-radius: 50%; margin: 0 1px; padding: 0;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, transparent 46%, var(--bad) 48%, var(--bad) 52%, transparent 54%), var(--surface);
+}
+.top-format-bar button.color-reset-btn:hover { outline: 2px solid var(--border); outline-offset: 1px; }
 .bg-color-input { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
 .bg-clear-btn {
   width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface);

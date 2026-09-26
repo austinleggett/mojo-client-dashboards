@@ -11,8 +11,16 @@
 // can apply a command to whichever field(s) are currently selected,
 // including more than one at once (shift-click to add a box to the
 // selection).
+// Deliberately fixed hex values, not theme variables -- picking "Red"
+// should mean red in both light and dark mode, the same way it would
+// in Word. "Default" used to be here too as a fixed dark charcoal
+// (#232420), which was actually just light mode's own text color
+// baked in as a literal -- fine as long as the page was always light,
+// but exactly backwards once dark mode existed: it pinned text to a
+// dark color that stayed dark (and unreadable) even against a dark
+// background. That's now its own "Auto" button below instead, which
+// clears the color rather than fixing it to one.
 const TEXT_COLORS = [
-  { label: "Default", hex: "#232420" },
   { label: "Gray", hex: "#5c5c52" },
   { label: "Green", hex: "#2f7a4f" },
   { label: "Red", hex: "#c0392b" },
@@ -28,6 +36,7 @@ export default function FormatToolbar({
   onAlign,
   onFontSize,
   onColor,
+  onClearColor,
   onBgColor,
   onClearBg,
   onUndo,
@@ -76,6 +85,12 @@ export default function FormatToolbar({
       </div>
       <span className="toolbar-sep" />
       <div className="top-format-group">
+        <button
+          type="button"
+          title="Auto (clear text color)"
+          className="color-reset-btn"
+          onClick={onClearColor}
+        />
         {TEXT_COLORS.map((c) => (
           <button
             key={c.hex}
