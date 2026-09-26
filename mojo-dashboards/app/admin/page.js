@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { isStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import SlugEditor from "@/components/SlugEditor";
 
 export default async function AdminPage() {
   if (!isStaff()) redirect("/staff-login");
@@ -33,19 +34,23 @@ export default async function AdminPage() {
       ) : (
         <div className="client-list">
           {clients.map((c) => (
-            <a href={`/c/${c.slug}`} className="client-row" key={c.id}>
+            <div className="client-row" key={c.id}>
               <div className="client-row-main">
                 <span className="client-dot" style={{ background: c.active ? c.accentColor || "#1f4d3a" : "#b5432f" }} />
                 <div>
                   <div className="client-name-lg">{c.name}</div>
                   <div className="client-meta">
-                    /c/{c.slug} · updated {new Date(c.updatedAt).toLocaleDateString()}
+                    <SlugEditor slug={c.slug} />
+                    {" · updated "}
+                    {new Date(c.updatedAt).toLocaleDateString()}
                     {!c.active ? " · inactive" : ""}
                   </div>
                 </div>
               </div>
-              <div className="client-row-actions">Open &rarr;</div>
-            </a>
+              <a href={`/c/${c.slug}`} className="client-row-actions">
+                Open &rarr;
+              </a>
+            </div>
           ))}
         </div>
       )}
