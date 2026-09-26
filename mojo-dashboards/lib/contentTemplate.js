@@ -29,6 +29,11 @@ export function blankContent(clientName) {
       footerNote: `Prepared for ${clientName || "your client"} · Updated monthly`,
       updatedAt: new Date().toISOString(),
       clientLogo: "",
+      // The Marketing Strategist headshot shown on the masthead, next
+      // to their name/title/email -- same data: URI approach as
+      // clientLogo, uploaded and resized client-side (see
+      // fileToLogoDataUrl in Dashboard.js), no separate storage needed.
+      contactPhoto: "",
     },
     sectionOrder: DEFAULT_SECTION_ORDER.slice(),
     // Sidebar nav labels, keyed by section id -- editable in edit mode
@@ -76,11 +81,21 @@ export function blankContent(clientName) {
 // structurally compatible.
 export const ITEM_TEMPLATES = {
   momentumItem: () => ({ month: "New month", text: "Add a highlight…" }),
-  storeItem: () => ({ name: "New Store", tag: "Steady", cls: "steady", text: "Add a note…" }),
+  // tagColor is a plain hex background for the little badge in the
+  // store card's top-right corner; its text is freely editable too
+  // (see the store card render in Dashboard.js). `cls` no longer gets
+  // set on new stores -- it only still exists as a fallback default
+  // color for stores saved before this, via CLS_DEFAULT_COLOR in
+  // Dashboard.js.
+  storeItem: () => ({ name: "New Store", tag: "Steady", tagColor: "#efece2", text: "Add a note…" }),
   footnoteItem: () => "Add a note…",
   reviewGroup: () => ({ label: "New deadline", items: [] }),
-  reviewItem: () => ({ title: "New item", store: "All stores", desc: "Add details…" }),
-  questionItem: () => ({ store: "Store", title: "New question", excerpt: "", response: "" }),
+  // status/clientComment are set by the client from the portal (via
+  // ApprovalWidget + the /respond API route), not edited here by
+  // staff -- "pending" is the only status a brand-new item should
+  // start in.
+  reviewItem: () => ({ title: "New item", store: "All stores", desc: "Add details…", status: "pending", clientComment: "" }),
+  questionItem: () => ({ store: "Store", title: "New question", excerpt: "", response: "", status: "pending", clientComment: "" }),
   workingItem: () => "New task item",
   approvedItem: () => "New approved item",
   eventItem: () => ({ mon: "JAN", day: "01", title: "New event", loc: "Location" }),
@@ -126,12 +141,6 @@ export const NAV_SECTIONS = [
   { id: "working", label: "Working On" },
   { id: "approved", label: "Approved & Live" },
   { id: "upcoming", label: "Events & Meetings" },
-];
-
-export const TAG_OPTIONS = [
-  { cls: "event", label: "Event" },
-  { cls: "needs", label: "Needs input" },
-  { cls: "steady", label: "Steady" },
 ];
 
 // Slugify a client name into a URL-safe, unguessable link segment:

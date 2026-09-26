@@ -93,3 +93,69 @@ export function isAutomationRequest(request) {
 export function isAuthorizedRequest(request) {
   return isStaffRequest(request) || isAutomationRequest(request);
 }
+
+// ---------------------------------------------------------------
+// Client portal session -- a second, separate kind of session from
+// staff's. Unlike STAFF_PASSWORD (one password for the whole team),
+// each client has their own password (Client.clientPassword, set by
+// staff in edit mode) and its own cookie, so being logged into one
+// client's portal never grants access to another's. The signed
+// payload includes the slug it was issued for, and every check
+// verifies the cookie's slug matches the page being requested --
+// without that, a client could log into their own portal, copy the
+// cookie value, and use it on someone else's link.
+const CLIENT_COOKIE_PREFIX = "mojo_client_";
+
+// Cookie names can't contain most punctuation, so drop anything that
+// isn't alphanumeric/hyphen -- slugs are already generated this way
+// (see makeSlug in lib/contentTemplate.js) but this keeps the cookie
+// name well-formed even if that ever changes.
+export function clientCookieName(slug) {
+  return `${CLIENT_COOKIE_PREFIX}${String(slug).replace(/[^a-zA-Z0-9-]/g, "")}`;
+}
+
+export function createClientSessionToken(slug) {
+  const exp = Date.now() + SESSION_TTL_MS;
+  const payload = `slug:${slug}|exp:${exp}`;
+  const sig = sign(payload);
+  return Buffer.from(`${payload}.${sig}`).toString("base64url");
+}
+
+function isValidClientSessionToken(token, slug) {
+  if (!token) return false;
+  try {
+    const decoded = Buffer.from(token, "base64url").toString("utf8");
+    const dot = decoded.lastIndexOf(".");
+    if (dot < 0) return false;
+    const payload = decoded.slice(0, dot);
+    const sig = decoded.slice(dot + 1);
+    const expected = sign(payload);
+    const a = Buffer.from(sig, "hex");
+    const b = Buffer.from(expected, "hex");
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
+    const m = /^slug:(.*)\|exp:(\d+)$/.exec(payload);
+    if (!m) return false;
+    if (m[1] !== slug) return false; // signed for a different client -- reject
+    return Number(m[2]) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+// For Server Components: read-only cookie check, scoped to one slug.
+export function isClientAuthorized(slug) {
+  const token = cookies().get(clientCookieName(slug))?.value;
+  return isValidClientSessionToken(token, slug);
+}
+
+// Compares a submitted password against the client's stored one.
+// `stored` null/empty (portal not set up for this client yet) always
+// fails closed rather than treating "no password set" as "any password
+// works."
+export function checkClientPassword(stored, candidate) {
+  if (!stored) return false;
+  const a = Buffer.from(String(candidate || ""));
+  const b = Buffer.from(String(stored));
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}

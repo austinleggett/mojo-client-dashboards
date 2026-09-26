@@ -1,22 +1,16 @@
 "use client";
 
-// A tiny formatting toolbar for a RichEditable field: bold / italic /
-// underline, left / center / right alignment, three font-size presets,
-// and a handful of preset text colors. Deliberately not a full
-// rich-text-editor library -- this is "core formatting" for dashboard
-// prose, not a document editor.
-//
-// The onMouseDown handler on the wrapper is the standard trick for
-// contentEditable toolbars: preventing the mousedown's default action
-// stops the browser from shifting focus (and losing the text
-// selection) to the button, so by the time onClick fires, the field is
-// still focused and the user's selection is still live.
-
-// A small, fixed palette rather than a full color picker -- covers the
-// common "call out a number" cases (green for good, red for bad) plus
-// a couple of neutral options. Green matches the brand's existing
-// --good color (used elsewhere for positive stat callouts) so a
-// hand-colored "good" number and an automatic one look the same.
+// The dashboard's formatting toolbar -- a single instance, pinned to
+// the top of the page for the whole time you're in edit mode, like a
+// word processor's ribbon. This used to be a small popup that appeared
+// next to whichever field you'd clicked into; that meant it could
+// overlap a neighboring card and become impossible to see or click, so
+// it's been pulled out of the page flow entirely and lives here
+// instead. This component is purely the buttons -- Dashboard.js owns
+// all the actual DOM/selection logic (see runOnTargets there), so it
+// can apply a command to whichever field(s) are currently selected,
+// including more than one at once (shift-click to add a box to the
+// selection).
 const TEXT_COLORS = [
   { label: "Default", hex: "#232420" },
   { label: "Gray", hex: "#5c5c52" },
@@ -25,110 +19,91 @@ const TEXT_COLORS = [
   { label: "Blue", hex: "#2563eb" },
 ];
 
-export default function FormatToolbar({ getTarget }) {
-  function exec(command) {
-    document.execCommand(command, false, null);
-  }
-
-  // Alignment is a whole-field property here (these are single-block
-  // fields, not multi-paragraph documents), so rather than lean on
-  // execCommand's inconsistent block-alignment behavior, wrap the
-  // field's entire content in one <div style="text-align:...">,
-  // updating it in place on repeated clicks instead of nesting.
-  function setAlign(align) {
-    const target = getTarget();
-    if (!target) return;
-    const first = target.firstElementChild;
-    const isWrapper =
-      target.children.length === 1 &&
-      first &&
-      first.tagName === "DIV" &&
-      /text-align\s*:/.test(first.getAttribute("style") || "");
-    if (isWrapper) {
-      first.style.textAlign = align;
-    } else {
-      target.innerHTML = `<div style="text-align:${align}">${target.innerHTML}</div>`;
-    }
-  }
-
-  // Font size on a *selection* (not the whole field) has to go through
-  // execCommand -- there's no other reliable way to wrap an arbitrary
-  // mid-text selection. execCommand("fontSize") only understands the
-  // legacy 1-7 scale and produces <font size="7"> elements, so we
-  // immediately swap those for <span style="font-size:...">, which is
-  // what the sanitizer and every other renderer here expects.
-  function setFontSize(px) {
-    const target = getTarget();
-    if (!target) return;
-    document.execCommand("fontSize", false, "7");
-    target.querySelectorAll('font[size="7"]').forEach((f) => {
-      const span = document.createElement("span");
-      span.style.fontSize = px;
-      span.innerHTML = f.innerHTML;
-      f.replaceWith(span);
-    });
-  }
-
-  // Same pattern as setFontSize: execCommand("foreColor") is the only
-  // reliable way to wrap an arbitrary mid-text selection, it just
-  // produces a legacy <font color="..."> that we immediately swap for
-  // <span style="color:...">. "Default" re-applies the same near-black
-  // used elsewhere on the dashboard, which in practice is how you
-  // "clear" a color you set earlier.
-  function setColor(hex) {
-    const target = getTarget();
-    if (!target) return;
-    document.execCommand("foreColor", false, hex);
-    target.querySelectorAll("font[color]").forEach((f) => {
-      const span = document.createElement("span");
-      span.style.color = f.getAttribute("color");
-      span.innerHTML = f.innerHTML;
-      f.replaceWith(span);
-    });
-  }
-
+export default function FormatToolbar({
+  selectionCount = 0,
+  onClearSelection,
+  onBold,
+  onItalic,
+  onUnderline,
+  onAlign,
+  onFontSize,
+  onColor,
+  onUndo,
+  canUndo,
+}) {
+  // Same trick as before: preventing the mousedown's default action
+  // stops the browser from shifting focus (and losing whatever text
+  // selection is live) to the button, so by the time onClick fires,
+  // the field the user was working in is still focused and selected.
   return (
-    <div className="format-toolbar" onMouseDown={(e) => e.preventDefault()}>
-      <button type="button" title="Bold" onClick={() => exec("bold")}>
-        <b>B</b>
-      </button>
-      <button type="button" title="Italic" onClick={() => exec("italic")}>
-        <i>I</i>
-      </button>
-      <button type="button" title="Underline" onClick={() => exec("underline")}>
-        <u>U</u>
-      </button>
+    <div className="top-format-bar" onMouseDown={(e) => e.preventDefault()}>
+      <div className="top-format-group">
+        <button type="button" title="Bold" onClick={onBold}>
+          <b>B</b>
+        </button>
+        <button type="button" title="Italic" onClick={onItalic}>
+          <i>I</i>
+        </button>
+        <button type="button" title="Underline" onClick={onUnderline}>
+          <u>U</u>
+        </button>
+      </div>
       <span className="toolbar-sep" />
-      <button type="button" title="Align left" onClick={() => setAlign("left")}>
-        ⯇
-      </button>
-      <button type="button" title="Align center" onClick={() => setAlign("center")}>
-        ▤
-      </button>
-      <button type="button" title="Align right" onClick={() => setAlign("right")}>
-        ⯈
-      </button>
+      <div className="top-format-group">
+        <button type="button" title="Align left" onClick={() => onAlign("left")}>
+          ⯇
+        </button>
+        <button type="button" title="Align center" onClick={() => onAlign("center")}>
+          ▤
+        </button>
+        <button type="button" title="Align right" onClick={() => onAlign("right")}>
+          ⯈
+        </button>
+      </div>
       <span className="toolbar-sep" />
-      <button type="button" title="Small text" className="fs-btn" onClick={() => setFontSize("12px")}>
-        S
-      </button>
-      <button type="button" title="Normal text" className="fs-btn" onClick={() => setFontSize("15px")}>
-        M
-      </button>
-      <button type="button" title="Large text" className="fs-btn" onClick={() => setFontSize("19px")}>
-        L
-      </button>
+      <div className="top-format-group">
+        <button type="button" title="Small text" className="fs-btn" onClick={() => onFontSize("12px")}>
+          S
+        </button>
+        <button type="button" title="Normal text" className="fs-btn" onClick={() => onFontSize("15px")}>
+          M
+        </button>
+        <button type="button" title="Large text" className="fs-btn" onClick={() => onFontSize("19px")}>
+          L
+        </button>
+      </div>
       <span className="toolbar-sep" />
-      {TEXT_COLORS.map((c) => (
-        <button
-          key={c.hex}
-          type="button"
-          title={c.label}
-          className="color-btn"
-          style={{ "--swatch": c.hex }}
-          onClick={() => setColor(c.hex)}
-        />
-      ))}
+      <div className="top-format-group">
+        {TEXT_COLORS.map((c) => (
+          <button
+            key={c.hex}
+            type="button"
+            title={c.label}
+            className="color-btn"
+            style={{ "--swatch": c.hex }}
+            onClick={() => onColor(c.hex)}
+          />
+        ))}
+      </div>
+
+      <span className="toolbar-flex-spacer" />
+
+      {selectionCount > 0 && (
+        <div className="selection-indicator">
+          {selectionCount === 1 ? "1 box selected" : `${selectionCount} boxes selected`}
+          <button type="button" className="selection-clear" onClick={onClearSelection} title="Clear selection">
+            &times;
+          </button>
+        </div>
+      )}
+      {selectionCount === 0 && (
+        <div className="selection-hint">Click a text box to format it &middot; shift-click to select several</div>
+      )}
+
+      <span className="toolbar-sep" />
+      <button type="button" className="undo-btn" onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl/Cmd+Z)">
+        &#8630; Undo
+      </button>
     </div>
   );
 }

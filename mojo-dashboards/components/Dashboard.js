@@ -1,10 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { NAV_SECTIONS, BUILTIN_SECTIONS, TAG_OPTIONS, ITEM_TEMPLATES, DEFAULT_SECTION_ORDER } from "@/lib/contentTemplate";
+import { useEffect, useMemo, useRef, useState, useCallback, useContext, createContext } from "react";
+import { NAV_SECTIONS, BUILTIN_SECTIONS, ITEM_TEMPLATES, DEFAULT_SECTION_ORDER } from "@/lib/contentTemplate";
 import { getPath, setPath, pushAt, removeAt } from "@/lib/path";
 import { SortableGroup, arrayMove } from "@/components/Sortable";
 import FormatToolbar from "@/components/FormatToolbar";
+
+// Two small contexts so RichEditable (defined once, used ~40+ times
+// across this file) can register itself with, and read its selection
+// state from, the single top-of-page format bar -- without threading
+// new props through every one of those call sites.
+//
+// Split in two on purpose: FieldActionsContext holds only stable
+// (useCallback'd, never-changing) functions, so a field's
+// register-my-DOM-node effect never has to re-run just because the
+// *selection* changed elsewhere on the page. FieldSelectionContext
+// holds the live "which paths are selected" array, which every rich
+// field does need to re-read (to know whether to show its own
+// selected/active highlight) whenever it changes.
+const FieldActionsContext = createContext(null);
+const FieldSelectionContext = createContext([]);
 
 const CheckIcon = () => (
   <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -58,6 +73,9 @@ function Editable({ as: Tag = "span", value, path, editing, onCommit, className,
 function RichEditable({ as: Tag = "div", value, path, editing, onCommit, className }) {
   const ref = useRef(null);
   const [focused, setFocused] = useState(false);
+  const fieldActions = useContext(FieldActionsContext);
+  const selectedFields = useContext(FieldSelectionContext);
+  const selected = selectedFields.includes(path);
 
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== (value ?? "")) {
@@ -65,15 +83,52 @@ function RichEditable({ as: Tag = "div", value, path, editing, onCommit, classNa
     }
   }, [value]);
 
+  // Hand this field's live DOM node to the shared registry so the
+  // top-of-page format bar can act on it later -- including when it
+  // isn't the field currently focused, which is what makes multi-box
+  // formatting (shift-click several boxes, then apply once) possible.
+  // Depends only on the stable actions object, not on selection state,
+  // so this doesn't re-run every time the selection changes elsewhere.
+  useEffect(() => {
+    if (!fieldActions) return undefined;
+    fieldActions.registerNode(path, ref.current);
+    return () => fieldActions.registerNode(path, null);
+  }, [path, fieldActions]);
+
   return (
-    <div className={`rich-field${editing ? (focused ? " rich-field-active" : " rich-field-hint") : ""}`}>
-      {editing && focused && <FormatToolbar getTarget={() => ref.current} />}
+    <div
+      className={`rich-field${editing ? (focused || selected ? " rich-field-active" : " rich-field-hint") : ""}${
+        selected ? " rich-field-selected" : ""
+      }`}
+    >
       <Tag
         ref={ref}
         className={className}
         contentEditable={editing}
         suppressContentEditableWarning
-        onFocus={editing ? () => setFocused(true) : undefined}
+        onMouseDown={
+          editing && fieldActions
+            ? (e) => {
+                // Shift-click adds/removes this box from the current
+                // multi-selection for bulk formatting, instead of
+                // moving the caret into it -- preventDefault stops the
+                // browser from focusing (and entering edit mode on)
+                // this field at all.
+                if (e.shiftKey) {
+                  e.preventDefault();
+                  fieldActions.toggleSelect(path);
+                }
+              }
+            : undefined
+        }
+        onFocus={
+          editing
+            ? () => {
+                setFocused(true);
+                if (fieldActions) fieldActions.selectOnly(path);
+              }
+            : undefined
+        }
         onBlur={
           editing
             ? (e) => {
@@ -104,6 +159,70 @@ function AddBtn({ onClick, label }) {
   );
 }
 
+// The client-facing approve / needs-edits control for a "Ready for
+// Review" or "Questions & Requests" item. `canRespond` is true for
+// staff and for a client who's logged into their portal (see
+// app/c/[slug]/page.js) -- everyone else (a plain visitor on a client
+// whose portal login isn't set up yet) sees a read-only badge, and
+// nothing at all once an item is still "pending" (no need to show a
+// passerby a control they can't use).
+//
+// Status changes save immediately on click, since there's no separate
+// "Save changes" step in the client's world -- but the comment
+// textarea buffers locally and only saves on blur, same as every
+// other text field on the dashboard, so a client isn't firing a
+// network write on every keystroke.
+function ApprovalWidget({ status, comment, canRespond, onStatusChange, onCommentCommit }) {
+  const effective = status || "pending";
+  const [draft, setDraft] = useState(comment || "");
+  useEffect(() => {
+    setDraft(comment || "");
+  }, [comment]);
+
+  if (!canRespond) {
+    if (effective === "pending") return null;
+    return (
+      <div className={`approval-badge ${effective}`}>
+        <span>{effective === "approved" ? "Client approved" : "Client requested edits"}</span>
+        {effective === "needs_edits" && comment && <p className="approval-comment-ro">{comment}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="approval-widget">
+      <div className="approval-toggle">
+        <button
+          type="button"
+          className={`approval-btn approve${effective === "approved" ? " on" : ""}`}
+          onClick={() => onStatusChange(effective === "approved" ? "pending" : "approved")}
+        >
+          <CheckIcon /> Approved
+        </button>
+        <button
+          type="button"
+          className={`approval-btn edits${effective === "needs_edits" ? " on" : ""}`}
+          onClick={() => onStatusChange(effective === "needs_edits" ? "pending" : "needs_edits")}
+        >
+          Needs edits
+        </button>
+      </div>
+      {effective === "needs_edits" && (
+        <textarea
+          className="approval-comment"
+          placeholder="What needs to change?"
+          rows={2}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            if (draft !== (comment || "")) onCommentCommit(draft);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 // Turns a hex accent color into the 3 shades the stylesheet expects
 // (base / a darker "strong" shade for text & headings / a very light
 // tint for subtle backgrounds), so picking one brand color is enough
@@ -126,6 +245,28 @@ function brandVars(accentColor) {
     "--brand-strong": mix(accentColor, [0, 0, 0], 0.28),
     "--brand-tint": mix(accentColor, [255, 255, 255], 0.88),
   };
+}
+
+// Picks readable black-or-white text for an arbitrary background color
+// -- used by the store spotlight tag, whose background is a free color
+// picker (see renderStores), so there's no fixed palette to hand-pick
+// a matching text color from.
+function contrastText(hex) {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return "#232420";
+  const [r, g, b] = rgb;
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "#232420" : "#ffffff";
+}
+
+// Stores saved before the tag color picker existed have a `cls` of
+// "event" / "needs" / "steady" and no `tagColor` -- these are this
+// dashboard's actual former badge colors (light mode), so an old
+// store's badge looks the same as before until someone opens the
+// color picker and changes it.
+const CLS_DEFAULT_COLOR = { event: "#e4ede6", needs: "#faf1de", steady: "#efece2" };
+function storeTagColor(store) {
+  return store.tagColor || CLS_DEFAULT_COLOR[store.cls] || "#efece2";
 }
 
 // Resizes/compresses an uploaded image client-side before it's stored
@@ -155,8 +296,63 @@ function fileToLogoDataUrl(file, maxDim = 220) {
   });
 }
 
-export default function Dashboard({ client, isStaff }) {
+export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
   const [content, setContent] = useState(client.content);
+
+  // ---------------------------------------------------------------
+  // Undo. A simple linear history of *previous* content snapshots --
+  // every edit (a text commit, an add/remove, a reorder, a format
+  // change) pushes the content as it was just before that edit, and
+  // undo pops the most recent one back. There's no redo stack; the
+  // user only asked for undo. Scoped to edits made in edit mode --
+  // saving (which just re-syncs with the server's echo of what was
+  // sent) and a client's own portal approvals don't touch this.
+  // ---------------------------------------------------------------
+  const historyRef = useRef([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const updateContent = useCallback((updater) => {
+    setContent((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      if (next !== prev) {
+        historyRef.current.push(prev);
+        if (historyRef.current.length > 60) historyRef.current.shift();
+        setUndoCount(historyRef.current.length);
+      }
+      return next;
+    });
+  }, []);
+  const undo = useCallback(() => {
+    const prev = historyRef.current.pop();
+    if (prev === undefined) return;
+    setUndoCount(historyRef.current.length);
+    setContent(prev);
+  }, []);
+
+  // ---------------------------------------------------------------
+  // Field selection, for the top-of-page format bar. `selectedFields`
+  // is the array of dot-paths currently selected -- a plain click into
+  // a field resets it to just that one path (see RichEditable's
+  // onFocus); shift-clicking additional fields adds them, for
+  // formatting several boxes at once. `fieldNodesRef` is how the
+  // toolbar reaches a selected field's live DOM node even when it
+  // isn't the one currently focused -- see runOnTargets below.
+  // ---------------------------------------------------------------
+  const fieldNodesRef = useRef(new Map());
+  const [selectedFields, setSelectedFields] = useState([]);
+  const registerNode = useCallback((path, node) => {
+    if (node) fieldNodesRef.current.set(path, node);
+    else fieldNodesRef.current.delete(path);
+  }, []);
+  const selectOnly = useCallback((path) => {
+    setSelectedFields((prev) => (prev.length === 1 && prev[0] === path ? prev : [path]));
+  }, []);
+  const toggleSelect = useCallback((path) => {
+    setSelectedFields((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
+  }, []);
+  const fieldActions = useMemo(
+    () => ({ registerNode, selectOnly, toggleSelect }),
+    [registerNode, selectOnly, toggleSelect]
+  );
 
   // The single source of truth for "what's on the page, in what order"
   // -- and, expanded below, for the sidebar menu too, so adding,
@@ -183,7 +379,9 @@ export default function Dashboard({ client, isStaff }) {
   const [navOpen, setNavOpen] = useState(false);
   const [activeSection, setActiveSection] = useState(navIds[0]);
   const [logoBusy, setLogoBusy] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const logoInputRef = useRef(null);
+  const photoInputRef = useRef(null);
 
   const toastTimer = useRef(null);
   const showToast = useCallback((msg) => {
@@ -218,32 +416,51 @@ export default function Dashboard({ client, isStaff }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content.sectionOrder, content.customSections]);
 
-  const commit = useCallback((path, value) => {
-    setContent((prev) => setPath(prev, path, value));
-  }, []);
+  // Ctrl/Cmd+Z, anywhere on the page while editing -- see the Undo
+  // button in the top format bar for the other way to trigger this.
+  useEffect(() => {
+    if (!editing) return undefined;
+    function onKeyDown(e) {
+      const key = e.key ? e.key.toLowerCase() : "";
+      if ((e.metaKey || e.ctrlKey) && key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editing, undo]);
 
-  const addItem = useCallback((path, template) => {
-    setContent((prev) => pushAt(prev, path, template()));
-  }, []);
+  const commit = useCallback(
+    (path, value) => {
+      updateContent((prev) => setPath(prev, path, value));
+    },
+    [updateContent]
+  );
 
-  const removeItem = useCallback((path, idx) => {
-    setContent((prev) => removeAt(prev, path, idx));
-  }, []);
+  const addItem = useCallback(
+    (path, template) => {
+      updateContent((prev) => pushAt(prev, path, template()));
+    },
+    [updateContent]
+  );
 
-  const reorder = useCallback((path, from, to) => {
-    setContent((prev) => setPath(prev, path, arrayMove(getPath(prev, path) || [], from, to)));
-  }, []);
+  const removeItem = useCallback(
+    (path, idx) => {
+      updateContent((prev) => removeAt(prev, path, idx));
+    },
+    [updateContent]
+  );
 
-  const setTag = useCallback((idx, opt) => {
-    setContent((prev) => {
-      let next = setPath(prev, `stores.items.${idx}.tag`, opt.label);
-      next = setPath(next, `stores.items.${idx}.cls`, opt.cls);
-      return next;
-    });
-  }, []);
+  const reorder = useCallback(
+    (path, from, to) => {
+      updateContent((prev) => setPath(prev, path, arrayMove(getPath(prev, path) || [], from, to)));
+    },
+    [updateContent]
+  );
 
   function reorderSections(from, to) {
-    setContent((prev) => {
+    updateContent((prev) => {
       const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
       return { ...prev, sectionOrder: arrayMove(cur, from, to) };
     });
@@ -259,7 +476,7 @@ export default function Dashboard({ client, isStaff }) {
   // back with everything still there. A custom section's own data is
   // deleted along with it, since there's nowhere else for it to live.
   function removeSection(id) {
-    setContent((prev) => {
+    updateContent((prev) => {
       const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
       const next = { ...prev, sectionOrder: cur.filter((s) => s !== id) };
       if (prev.customSections?.some((c) => c.id === id)) {
@@ -271,7 +488,7 @@ export default function Dashboard({ client, isStaff }) {
 
   // Brings a hidden built-in section back at the end of the page/menu.
   function addBuiltinSection(id) {
-    setContent((prev) => {
+    updateContent((prev) => {
       const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
       if (cur.includes(id)) return prev;
       return { ...prev, sectionOrder: [...cur, id] };
@@ -283,7 +500,7 @@ export default function Dashboard({ client, isStaff }) {
   // because the id that goes on sectionOrder here is the exact id the
   // section renders itself under and the nav anchors to.
   function addCustomSection() {
-    setContent((prev) => {
+    updateContent((prev) => {
       const section = ITEM_TEMPLATES.customSection();
       const cur = prev.sectionOrder && prev.sectionOrder.length ? prev.sectionOrder : DEFAULT_SECTION_ORDER;
       return {
@@ -294,7 +511,115 @@ export default function Dashboard({ client, isStaff }) {
     });
   }
 
-  async function handleLogoUpload(e) {
+  // ---------------------------------------------------------------
+  // The top format bar's actual work: run a formatting mutation against
+  // every currently-selected field's live DOM node, then commit each
+  // one's resulting HTML back into content.
+  //
+  // For a single field that's genuinely focused with its own live text
+  // selection (the normal "highlight a word, click Bold" case), that
+  // selection is left exactly as the user made it -- execCommand just
+  // acts on it. Otherwise (a field selected only via shift-click, never
+  // focused; or more than one field selected at once) there's no
+  // meaningful partial-text selection to preserve, so each node is
+  // focused and its *entire* contents are selected in turn, immediately
+  // before the mutation runs on it -- the browser only ever has one
+  // live selection at a time, so this has to happen one node at a time,
+  // not "select everything, then mutate everything."
+  // ---------------------------------------------------------------
+  function runOnTargets(mutate) {
+    const targets = selectedFields
+      .map((path) => ({ path, node: fieldNodesRef.current.get(path) }))
+      .filter((t) => t.node);
+    if (!targets.length) {
+      showToast("Click a text box first, then use the toolbar");
+      return;
+    }
+    const sel = typeof window !== "undefined" ? window.getSelection() : null;
+    const soleFocused =
+      targets.length === 1 &&
+      document.activeElement === targets[0].node &&
+      sel &&
+      sel.rangeCount > 0 &&
+      targets[0].node.contains(sel.getRangeAt(0).commonAncestorContainer);
+
+    targets.forEach(({ node }) => {
+      if (!soleFocused) {
+        node.focus();
+        const s = window.getSelection();
+        s.removeAllRanges();
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        s.addRange(range);
+      }
+      mutate(node);
+    });
+    targets.forEach(({ path, node }) => commit(path, node.innerHTML));
+  }
+
+  const applyBold = () => runOnTargets(() => document.execCommand("bold", false, null));
+  const applyItalic = () => runOnTargets(() => document.execCommand("italic", false, null));
+  const applyUnderline = () => runOnTargets(() => document.execCommand("underline", false, null));
+
+  // Alignment is a whole-field property (these are single-block fields,
+  // not multi-paragraph documents), so rather than lean on execCommand's
+  // inconsistent block-alignment behavior, wrap the field's entire
+  // content in one <div style="text-align:...">, updating it in place
+  // on repeated clicks instead of nesting.
+  function applyAlign(align) {
+    runOnTargets((node) => {
+      const first = node.firstElementChild;
+      const isWrapper =
+        node.children.length === 1 &&
+        first &&
+        first.tagName === "DIV" &&
+        /text-align\s*:/.test(first.getAttribute("style") || "");
+      if (isWrapper) {
+        first.style.textAlign = align;
+      } else {
+        node.innerHTML = `<div style="text-align:${align}">${node.innerHTML}</div>`;
+      }
+    });
+  }
+
+  // Font size on a selection has to go through execCommand -- there's
+  // no other reliable way to wrap an arbitrary mid-text selection.
+  // execCommand("fontSize") only understands the legacy 1-7 scale and
+  // produces <font size="7"> elements, so those are immediately swapped
+  // for <span style="font-size:...">, which is what the sanitizer and
+  // every other renderer here expects.
+  function applyFontSize(px) {
+    runOnTargets((node) => {
+      document.execCommand("fontSize", false, "7");
+      node.querySelectorAll('font[size="7"]').forEach((f) => {
+        const span = document.createElement("span");
+        span.style.fontSize = px;
+        span.innerHTML = f.innerHTML;
+        f.replaceWith(span);
+      });
+    });
+  }
+
+  // Same pattern: execCommand("foreColor") is the only reliable way to
+  // wrap an arbitrary mid-text selection, producing a legacy
+  // <font color="..."> that's immediately swapped for
+  // <span style="color:...">.
+  function applyColor(hex) {
+    runOnTargets((node) => {
+      document.execCommand("foreColor", false, hex);
+      node.querySelectorAll("font[color]").forEach((f) => {
+        const span = document.createElement("span");
+        span.style.color = f.getAttribute("color");
+        span.innerHTML = f.innerHTML;
+        f.replaceWith(span);
+      });
+    });
+  }
+
+  // Shared by the client-logo uploader and the Marketing Strategist
+  // headshot uploader -- both just resize an image client-side into a
+  // data: URI and commit it at a given content path.
+  async function handleImageUpload(e, path, { maxDim, busyLabel, setBusy } = {}) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -302,17 +627,22 @@ export default function Dashboard({ client, isStaff }) {
       showToast("Please choose an image file");
       return;
     }
-    setLogoBusy(true);
+    const setBusyFn = setBusy || setLogoBusy;
+    setBusyFn(true);
     try {
-      const dataUrl = await fileToLogoDataUrl(file);
-      commit("meta.clientLogo", dataUrl);
-      showToast("Logo added -- remember to save");
+      const dataUrl = await fileToLogoDataUrl(file, maxDim);
+      commit(path, dataUrl);
+      showToast(`${busyLabel || "Image"} added -- remember to save`);
     } catch (err) {
-      showToast(err.message || "Couldn't add that logo");
+      showToast(err.message || "Couldn't add that image");
     } finally {
-      setLogoBusy(false);
+      setBusyFn(false);
     }
   }
+  const handleLogoUpload = (e) =>
+    handleImageUpload(e, "meta.clientLogo", { maxDim: 220, busyLabel: "Logo", setBusy: setLogoBusy });
+  const handlePhotoUpload = (e) =>
+    handleImageUpload(e, "meta.contactPhoto", { maxDim: 320, busyLabel: "Photo", setBusy: setPhotoBusy });
 
   async function handleSave() {
     setSaving(true);
@@ -336,6 +666,56 @@ export default function Dashboard({ client, isStaff }) {
       showToast(err.message || "Save failed");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // The client portal password lives on the Client record, not in
+  // `content` -- it's set here, separately from "Save changes", and
+  // (per lib/db.js's toSafeClient) the current value is never sent to
+  // the browser, so this field is always write-only: typing something
+  // and saving *changes* the password, it never displays it.
+  const [clientPasswordDraft, setClientPasswordDraft] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  async function savePortalPassword(nextPassword) {
+    setSavingPassword(true);
+    try {
+      const res = await fetch(`/api/clients/${client.slug}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, clientPassword: nextPassword }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Couldn't save that.");
+      }
+      setClientPasswordDraft("");
+      showToast(nextPassword ? "Portal password set" : "Portal password removed");
+    } catch (err) {
+      showToast(err.message || "Couldn't save that.");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  // The client-facing approve/needs-edits control (see ApprovalWidget)
+  // saves immediately through its own narrow API route rather than
+  // through the staff "Save changes" flow -- a client viewing their
+  // portal never sees or uses that button.
+  async function respond(path, value) {
+    try {
+      const res = await fetch(`/api/clients/${client.slug}/respond`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, value }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Couldn't save that.");
+      }
+      const { content: saved } = await res.json();
+      setContent(saved);
+    } catch (err) {
+      showToast(err.message || "Couldn't save that.");
     }
   }
 
@@ -467,26 +847,23 @@ export default function Dashboard({ client, isStaff }) {
             <>
               <div className="store-card-top">
                 <RichEditable as="span" className="store-name" value={store.name} path={`stores.items.${i}.name`} editing={editing} onCommit={commit} />
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span className={`store-tag ${store.cls}`}>{store.tag}</span>
+                <div className="store-tag-group">
+                  <span className="store-tag" style={{ background: storeTagColor(store), color: contrastText(storeTagColor(store)) }}>
+                    <Editable value={store.tag} path={`stores.items.${i}.tag`} editing={editing} onCommit={commit} />
+                  </span>
+                  {editing && (
+                    <input
+                      type="color"
+                      className="tag-color-input edit-ctl"
+                      title="Badge color"
+                      value={storeTagColor(store)}
+                      onChange={(e) => commit(`stores.items.${i}.tagColor`, e.target.value)}
+                    />
+                  )}
                   {editing && <RemoveBtn onClick={() => removeItem("stores.items", i)} />}
                 </div>
               </div>
               <RichEditable as="p" value={store.text} path={`stores.items.${i}.text`} editing={editing} onCommit={commit} />
-              {editing && (
-                <div className="tag-picker">
-                  {TAG_OPTIONS.map((opt) => (
-                    <button
-                      type="button"
-                      key={opt.cls}
-                      className={`tag-opt${store.cls === opt.cls ? " on" : ""}`}
-                      onClick={() => setTag(i, opt)}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
             </>
           )}
         </SortableGroup>
@@ -533,6 +910,13 @@ export default function Dashboard({ client, isStaff }) {
                         {editing && <RemoveBtn onClick={() => removeItem(`review.groups.${gi}.items`, ii)} />}
                       </div>
                       <RichEditable as="div" className="review-item-desc" value={item.desc} path={`review.groups.${gi}.items.${ii}.desc`} editing={editing} onCommit={commit} />
+                      <ApprovalWidget
+                        status={item.status}
+                        comment={item.clientComment}
+                        canRespond={canRespond}
+                        onStatusChange={(s) => respond(`review.groups.${gi}.items.${ii}.status`, s)}
+                        onCommentCommit={(c) => respond(`review.groups.${gi}.items.${ii}.clientComment`, c)}
+                      />
                     </>
                   )}
                 </SortableGroup>
@@ -577,6 +961,13 @@ export default function Dashboard({ client, isStaff }) {
                   {(q.response || editing) && (
                     <RichEditable as="div" className="question-response" value={q.response} path={`questions.items.${i}.response`} editing={editing} onCommit={commit} />
                   )}
+                  <ApprovalWidget
+                    status={q.status}
+                    comment={q.clientComment}
+                    canRespond={canRespond}
+                    onStatusChange={(s) => respond(`questions.items.${i}.status`, s)}
+                    onCommentCommit={(c) => respond(`questions.items.${i}.clientComment`, c)}
+                  />
                 </>
               )}
             </SortableGroup>
@@ -790,7 +1181,23 @@ export default function Dashboard({ client, isStaff }) {
   const hiddenBuiltins = BUILTIN_SECTIONS.filter((s) => !sectionOrder.includes(s.id));
 
   return (
+    <FieldActionsContext.Provider value={fieldActions}>
+    <FieldSelectionContext.Provider value={selectedFields}>
     <div className="shell" style={brandVars(accentColor)}>
+      {editing && (
+        <FormatToolbar
+          selectionCount={selectedFields.length}
+          onClearSelection={() => setSelectedFields([])}
+          onBold={applyBold}
+          onItalic={applyItalic}
+          onUnderline={applyUnderline}
+          onAlign={applyAlign}
+          onFontSize={applyFontSize}
+          onColor={applyColor}
+          onUndo={undo}
+          canUndo={undoCount > 0}
+        />
+      )}
       {isStaff && (
         <button
           type="button"
@@ -854,6 +1261,32 @@ export default function Dashboard({ client, isStaff }) {
                       onChange={(e) => setAccentColor(e.target.value)}
                     />
                   </div>
+
+                  <div className="portal-password-row">
+                    <label htmlFor="clientPassword">Client portal password</label>
+                    <p className="portal-password-hint">
+                      Set this to require a password before the client can view their dashboard. This never shows
+                      the current password back -- saving a new one here just replaces it. Leave the box blank and
+                      click Save to turn the password off again.
+                    </p>
+                    <input
+                      id="clientPassword"
+                      type="text"
+                      className="field-input-inline"
+                      placeholder="New portal password…"
+                      value={clientPasswordDraft}
+                      onChange={(e) => setClientPasswordDraft(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="side-btn ghost"
+                      disabled={savingPassword}
+                      onClick={() => savePortalPassword(clientPasswordDraft)}
+                    >
+                      {savingPassword ? "Saving…" : "Save password"}
+                    </button>
+                  </div>
+
                   <button type="button" className="side-btn primary" onClick={handleSave} disabled={saving}>
                     {saving ? "Saving…" : "Save changes"}
                   </button>
@@ -877,59 +1310,120 @@ export default function Dashboard({ client, isStaff }) {
       <div className="content">
         <header className="masthead">
           <div className="masthead-inner">
-            <div className="brand-row">
-              <div className="brand-mark">
-                <img src="/mojo-logo.png" alt="Mountain Mojo Group" width={22} height={22} />
+            {/* Client-first: their logo and name lead, biggest thing on
+                the page -- this is their dashboard, not a Mojo report
+                with their name pasted on it. */}
+            <div className="masthead-client">
+              <div className="client-logo-frame">
+                {content.meta.clientLogo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={content.meta.clientLogo} alt="" className="client-logo-lg" />
+                ) : (
+                  <div className="client-logo-placeholder" aria-hidden="true">
+                    {(content.meta.clientName || "?").trim().charAt(0).toUpperCase()}
+                  </div>
+                )}
+                {editing && (
+                  <>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={handleLogoUpload}
+                    />
+                    <button
+                      type="button"
+                      className="side-btn ghost edit-ctl client-logo-btn"
+                      onClick={() => logoInputRef.current?.click()}
+                      disabled={logoBusy}
+                    >
+                      {logoBusy ? "Adding…" : content.meta.clientLogo ? "Change" : "+ Logo"}
+                    </button>
+                  </>
+                )}
               </div>
-              <div>
-                <div className="nav-brand">Mountain Mojo Group</div>
-                <div className="nav-sub">Monthly Marketing Update</div>
+              <div className="masthead-client-text">
+                <RichEditable
+                  as="div"
+                  className="client-name-xl"
+                  value={content.meta.clientName}
+                  path="meta.clientName"
+                  editing={editing}
+                  onCommit={commit}
+                />
+                <div className="client-dashboard-label">Client Dashboard</div>
+                <div className="client-studio-tagline">
+                  {(content.meta.clientName || "Your").trim()}&rsquo;s Marketing Studio
+                </div>
+                <RichEditable
+                  as="div"
+                  className="client-context-line"
+                  value={content.meta.tagline}
+                  path="meta.tagline"
+                  editing={editing}
+                  onCommit={commit}
+                />
               </div>
+            </div>
 
-              {(content.meta.clientLogo || editing) && (
-                <div className="client-logo-wrap">
-                  {content.meta.clientLogo ? (
+            {/* Mojo's own branding moves to a small, secondary spot on
+                the right, alongside the strategist the client actually
+                works with day to day. */}
+            <div className="masthead-mojo">
+              <div className="mojo-mini-brand">
+                <img src="/mojo-logo.png" alt="" width={18} height={18} />
+                <span>Mountain Mojo Group</span>
+              </div>
+              <div className="strategist-card">
+                <div className="strategist-photo-frame">
+                  {content.meta.contactPhoto ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={content.meta.clientLogo} alt="" className="client-logo" />
-                  ) : null}
+                    <img src={content.meta.contactPhoto} alt="" className="strategist-photo" />
+                  ) : (
+                    <div className="strategist-photo-placeholder" aria-hidden="true">
+                      {(content.meta.contactName || "?").trim().charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   {editing && (
                     <>
                       <input
-                        ref={logoInputRef}
+                        ref={photoInputRef}
                         type="file"
                         accept="image/*"
                         style={{ display: "none" }}
-                        onChange={handleLogoUpload}
+                        onChange={handlePhotoUpload}
                       />
                       <button
                         type="button"
-                        className="side-btn ghost edit-ctl client-logo-btn"
-                        onClick={() => logoInputRef.current?.click()}
-                        disabled={logoBusy}
+                        className="strategist-photo-btn edit-ctl"
+                        onClick={() => photoInputRef.current?.click()}
+                        disabled={photoBusy}
                       >
-                        {logoBusy ? "Adding…" : content.meta.clientLogo ? "Change logo" : "+ Client logo"}
+                        {photoBusy ? "…" : "Photo"}
                       </button>
                     </>
                   )}
                 </div>
-              )}
-            </div>
-            <div className="masthead-meta">
-              <RichEditable
-                as="div"
-                className="client-name"
-                value={content.meta.clientName}
-                path="meta.clientName"
-                editing={editing}
-                onCommit={commit}
-              />
-              <RichEditable
-                as="div"
-                value={content.meta.tagline}
-                path="meta.tagline"
-                editing={editing}
-                onCommit={commit}
-              />
+                <div className="strategist-info">
+                  <RichEditable
+                    as="div"
+                    className="strategist-name"
+                    value={content.meta.contactName}
+                    path="meta.contactName"
+                    editing={editing}
+                    onCommit={commit}
+                  />
+                  <RichEditable
+                    as="div"
+                    className="strategist-email"
+                    value={content.meta.contactEmail}
+                    path="meta.contactEmail"
+                    editing={editing}
+                    onCommit={commit}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </header>
@@ -992,5 +1486,7 @@ export default function Dashboard({ client, isStaff }) {
 
       <div className={`toast${toast ? " show" : ""}`}>{toast}</div>
     </div>
+    </FieldSelectionContext.Provider>
+    </FieldActionsContext.Provider>
   );
 }

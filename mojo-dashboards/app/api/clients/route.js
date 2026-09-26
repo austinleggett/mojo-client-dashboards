@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, toSafeClient } from "@/lib/db";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { blankContent, makeSlug } from "@/lib/contentTemplate";
 import { sanitizeContent } from "@/lib/sanitize";
@@ -50,5 +50,5 @@ export async function POST(request) {
     },
   });
 
-  return NextResponse.json({ client }, { status: 201 });
+  return NextResponse.json({ client: toSafeClient(client) }, { status: 201 });
 }

@@ -24,6 +24,16 @@ model Client {
   name        String
   active      Boolean  @default(true)
   accentColor String   @default("#1f4d3a")
+  // Set by staff in edit mode to turn on the client-facing "portal"
+  // login at /c/<slug> (see app/c/[slug]/page.js and lib/auth.js).
+  // Null/empty = no password gate yet -- the dashboard is still
+  // reachable by anyone with the link, same as before this existed.
+  // Stored as plain text, like STAFF_PASSWORD, rather than hashed --
+  // consistent with this app's existing one-shared-password model, and
+  // deliberately never sent back to the browser once set (see
+  // lib/db.js's toSafeClient, used everywhere a Client record reaches
+  // client-rendered code or a JSON response).
+  clientPassword String?
   content     Json
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
