@@ -139,14 +139,16 @@ input { font-family: inherit; }
   position: relative; padding: 34px 32px 30px; display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap;
 }
 
-.masthead-client { display: flex; align-items: center; gap: 18px; }
+.masthead-client { display: flex; align-items: center; gap: 24px; }
 .client-logo-frame { position: relative; flex: none; }
 /* The colored "mat" behind the logo -- its own background, separate
    from the logo image, editable via meta.clientLogoBg (see the color
    input next to the upload button in edit mode) so a white/light logo
-   can sit on a color you actually choose instead of always white. */
+   can sit on a color you actually choose instead of always white.
+   Sized to be the clear visual anchor of the header, not a small icon
+   next to the name. */
 .client-logo-swatch {
-  width: 76px; height: 76px; border-radius: 14px; padding: 8px; box-shadow: var(--shadow);
+  width: 128px; height: 128px; border-radius: 18px; padding: 12px; box-shadow: var(--shadow);
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 .client-logo-lg { width: 100%; height: 100%; object-fit: contain; }
@@ -156,10 +158,10 @@ input { font-family: inherit; }
 .client-logo-placeholder {
   width: 100%; height: 100%; color: var(--brand-strong);
   display: flex; align-items: center; justify-content: center; font-family: 'Libre Franklin', sans-serif;
-  font-weight: 800; font-size: 30px;
+  font-weight: 800; font-size: 52px;
 }
 .client-logo-controls {
-  position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+  position: absolute; bottom: -12px; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 4px; white-space: nowrap;
 }
 .client-logo-btn { font-size: 10.5px; padding: 4px 9px; }
@@ -245,19 +247,31 @@ body.editing .edit-ctl { display: inline-flex; }
    dot, laid out one per row -- rather than a wrapped row of plain text
    that reads as one run-on sentence, every note now visually reads as
    its own separate thought. */
+/* Flowing, content-sized cards -- flex-wrap rather than a full-width
+   stack, so a short one-line note stays a short, compact card instead
+   of stretching into an empty-looking bar across the page. They wrap
+   into as many columns as fit and stay centered as a group. */
 .glance-footnote {
-  margin-top: 14px; padding: 4px 0 0; display: flex; flex-direction: column; gap: 8px;
+  margin-top: 14px; padding: 4px 0 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 12px;
 }
 .foot-pill {
   display: flex; align-items: flex-start; gap: 9px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px;
   font-size: 13px; color: var(--ink); box-shadow: var(--shadow);
+  flex: 0 1 auto; min-width: 170px; max-width: 340px;
 }
 .foot-pill::before {
   content: ""; flex: none; width: 7px; height: 7px; border-radius: 999px; margin-top: 6px;
   background: var(--brand-strong);
 }
-.foot-pill .rich-field { flex: 1; }
+.foot-pill .rich-field { flex: 1; min-width: 0; }
+/* The "Add note" button joins the same flowing row in edit mode --
+   override its usual full-width block styling so it doesn't become
+   its own giant bar at the end of the row. */
+.glance-footnote .add-btn { width: auto; flex: 0 0 auto; }
+@media (max-width: 480px) {
+  .foot-pill { min-width: 0; max-width: none; width: 100%; }
+}
 
 /* ---------- Momentum ---------- */
 .momentum-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
