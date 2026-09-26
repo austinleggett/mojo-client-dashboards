@@ -349,8 +349,23 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
   const toggleSelect = useCallback((path) => {
     setSelectedFields((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
   }, []);
+  // When the toolbar applies a bulk format across several selected
+  // boxes (see runOnTargets), it has to programmatically .focus() each
+  // node in turn -- which would otherwise cascade into each one's own
+  // onFocus resetting the selection down to just that one box (so a
+  // second toolbar click right after, e.g. also making the same
+  // multi-selection green, would only hit the last box touched). This
+  // flag tells RichEditable's onFocus to skip that reset while a bulk
+  // operation is in progress.
+  const suppressAutoSelectRef = useRef(false);
   const fieldActions = useMemo(
-    () => ({ registerNode, selectOnly, toggleSelect }),
+    () => ({
+      registerNode,
+      selectOnly: (path) => {
+        if (!suppressAutoSelectRef.current) selectOnly(path);
+      },
+      toggleSelect,
+    }),
     [registerNode, selectOnly, toggleSelect]
   );
 
@@ -543,17 +558,22 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       sel.rangeCount > 0 &&
       targets[0].node.contains(sel.getRangeAt(0).commonAncestorContainer);
 
-    targets.forEach(({ node }) => {
-      if (!soleFocused) {
-        node.focus();
-        const s = window.getSelection();
-        s.removeAllRanges();
-        const range = document.createRange();
-        range.selectNodeContents(node);
-        s.addRange(range);
-      }
-      mutate(node);
-    });
+    suppressAutoSelectRef.current = true;
+    try {
+      targets.forEach(({ node }) => {
+        if (!soleFocused) {
+          node.focus();
+          const s = window.getSelection();
+          s.removeAllRanges();
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          s.addRange(range);
+        }
+        mutate(node);
+      });
+    } finally {
+      suppressAutoSelectRef.current = false;
+    }
     targets.forEach(({ path, node }) => commit(path, node.innerHTML));
   }
 
@@ -615,6 +635,25 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       });
     });
   }
+
+  // Background color for a text box -- "hiliteColor" is the
+  // execCommand for this (foreColor is text color); different engines
+  // wrap the selection differently (a <font style="...">, or already a
+  // <span style="background-color:...">), so this normalizes whatever
+  // comes out into the same <span style="background-color:...">
+  // shape as everything else here.
+  function applyBgColor(hex) {
+    runOnTargets((node) => {
+      document.execCommand("hiliteColor", false, hex);
+      node.querySelectorAll("font[style]").forEach((f) => {
+        const span = document.createElement("span");
+        span.style.backgroundColor = hex;
+        span.innerHTML = f.innerHTML;
+        f.replaceWith(span);
+      });
+    });
+  }
+  const applyClearBg = () => applyBgColor("transparent");
 
   // Shared by the client-logo uploader and the Marketing Strategist
   // headshot uploader -- both just resize an image client-side into a
@@ -1194,6 +1233,8 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
           onAlign={applyAlign}
           onFontSize={applyFontSize}
           onColor={applyColor}
+          onBgColor={applyBgColor}
+          onClearBg={applyClearBg}
           onUndo={undo}
           canUndo={undoCount > 0}
         />
@@ -1315,16 +1356,21 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                 with their name pasted on it. */}
             <div className="masthead-client">
               <div className="client-logo-frame">
-                {content.meta.clientLogo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={content.meta.clientLogo} alt="" className="client-logo-lg" />
-                ) : (
-                  <div className="client-logo-placeholder" aria-hidden="true">
-                    {(content.meta.clientName || "?").trim().charAt(0).toUpperCase()}
-                  </div>
-                )}
+                <div
+                  className="client-logo-swatch"
+                  style={{ background: content.meta.clientLogoBg || "#fdfdf9" }}
+                >
+                  {content.meta.clientLogo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={content.meta.clientLogo} alt="" className="client-logo-lg" />
+                  ) : (
+                    <div className="client-logo-placeholder" aria-hidden="true">
+                      {(content.meta.clientName || "?").trim().charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
                 {editing && (
-                  <>
+                  <div className="client-logo-controls">
                     <input
                       ref={logoInputRef}
                       type="file"
@@ -1340,7 +1386,14 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                     >
                       {logoBusy ? "Adding…" : content.meta.clientLogo ? "Change" : "+ Logo"}
                     </button>
-                  </>
+                    <input
+                      type="color"
+                      className="logo-bg-input edit-ctl"
+                      title="Background behind the logo"
+                      value={/^#[0-9a-f]{6}$/i.test(content.meta.clientLogoBg) ? content.meta.clientLogoBg : "#fdfdf9"}
+                      onChange={(e) => commit("meta.clientLogoBg", e.target.value)}
+                    />
+                  </div>
                 )}
               </div>
               <div className="masthead-client-text">

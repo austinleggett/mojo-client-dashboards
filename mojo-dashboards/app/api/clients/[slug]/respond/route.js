@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isStaffRequest, isClientAuthorized } from "@/lib/auth";
 import { getPath, setPath } from "@/lib/path";
+import { sendApprovalNotice } from "@/lib/email";
 
 // A narrow, separate door for the client-facing approval widget (see
 // ApprovalWidget in components/Dashboard.js) -- distinct from the
@@ -63,5 +64,28 @@ export async function PUT(request, { params }) {
     where: { slug: params.slug },
     data: { content: nextContent },
   });
+
+  // Let the Marketing Strategist know the moment an actual client (not
+  // staff previewing/testing their own dashboard) approves something
+  // or asks for edits -- staff shouldn't get emailed about their own
+  // test clicks, so this only fires for a genuine client-portal caller.
+  if (!staff && path.endsWith(".status") && (value === "approved" || value === "needs_edits")) {
+    const item = getPath(updated.content, parentPath) || {};
+    const itemLabel = item.title || item.store || "an item on the dashboard";
+    const anchor = path.startsWith("review.") ? "review" : "questions";
+    // Awaited, not fire-and-forget -- a serverless function can be
+    // frozen the instant the response goes out, which would cut off an
+    // un-awaited send before it actually reaches Resend. sendApprovalNotice
+    // never throws (see lib/email.js), so this can't fail the save.
+    await sendApprovalNotice({
+      to: updated.content?.meta?.contactEmail,
+      clientName: updated.content?.meta?.clientName || client.name,
+      itemLabel,
+      status: value,
+      comment: item.clientComment || "",
+      dashboardUrl: `${request.nextUrl.origin}/c/${params.slug}#${anchor}`,
+    });
+  }
+
   return NextResponse.json({ content: updated.content });
 }

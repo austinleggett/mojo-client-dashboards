@@ -115,21 +115,25 @@ input { font-family: inherit; }
 
 /* ---------- Masthead ----------
    Client-first: the client's own logo and name lead (largest thing in
-   the header), with a simple, low-opacity topo-line texture behind
-   everything for a bit of "mountain" character without competing with
-   the text. Mountain Mojo's own branding and the Marketing Strategist
-   the client actually works with sit together in a small, secondary
-   spot on the right. */
+   the header). A soft diagonal gradient plus one single, large,
+   low-opacity mountain silhouette anchored in the corner gives it some
+   character without reading as a busy repeating pattern -- one clean
+   graphic, not tiled wallpaper. Mountain Mojo's own branding and the
+   Marketing Strategist the client actually works with sit together in
+   a small, secondary spot on the right. */
 .masthead {
-  background: var(--brand); color: #fdfdf9; position: relative; overflow: hidden;
+  background: linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
+  color: #fdfdf9; position: relative; overflow: hidden;
 }
 .masthead::before {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  /* A few nested, hand-drawn-feeling contour lines, tiled -- deliberately
-     built from rgba() rather than hex, so the color values don't need
-     any #-encoding inside this data: URI. */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='180' viewBox='0 0 260 180'%3E%3Cg fill='none' stroke='rgba(253,253,249,0.5)' stroke-width='1.4'%3E%3Cpath d='M-10 150 Q 40 100, 90 130 T 190 110 T 280 140'/%3E%3Cpath d='M-10 170 Q 50 130, 100 155 T 200 135 T 280 165'/%3E%3Cpath d='M-10 40 Q 40 -5, 100 25 T 210 5 T 280 35'/%3E%3Cpath d='M-10 60 Q 45 20, 105 48 T 215 28 T 280 55'/%3E%3C/g%3E%3C/svg%3E");
-  background-repeat: repeat; background-size: 260px 180px; opacity: .5;
+  content: ""; position: absolute; right: -30px; bottom: -26px; width: 380px; height: 200px;
+  pointer-events: none; opacity: .14;
+  /* Three overlapping solid-fill triangles read as a simple mountain
+     range silhouette -- flat fills, no strokes, so it stays clean at
+     any size instead of looking like scribbled lines. rgba() again to
+     avoid #-encoding inside the data: URI. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='380' height='200' viewBox='0 0 380 200'%3E%3Cpath d='M0 200 L95 70 L190 200 Z' fill='rgba(253,253,249,0.5)'/%3E%3Cpath d='M80 200 L200 30 L320 200 Z' fill='rgba(253,253,249,0.65)'/%3E%3Cpath d='M180 200 L275 85 L380 200 Z' fill='rgba(253,253,249,0.8)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: bottom right; background-size: contain;
 }
 .masthead-inner {
   position: relative; padding: 34px 32px 30px; display: flex; justify-content: space-between; align-items: center; gap: 24px; flex-wrap: wrap;
@@ -137,22 +141,29 @@ input { font-family: inherit; }
 
 .masthead-client { display: flex; align-items: center; gap: 18px; }
 .client-logo-frame { position: relative; flex: none; }
-.client-logo-lg {
-  width: 76px; height: 76px; object-fit: contain; border-radius: 14px;
-  background: #fdfdf9; padding: 8px; box-shadow: var(--shadow);
+/* The colored "mat" behind the logo -- its own background, separate
+   from the logo image, editable via meta.clientLogoBg (see the color
+   input next to the upload button in edit mode) so a white/light logo
+   can sit on a color you actually choose instead of always white. */
+.client-logo-swatch {
+  width: 76px; height: 76px; border-radius: 14px; padding: 8px; box-shadow: var(--shadow);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
+.client-logo-lg { width: 100%; height: 100%; object-fit: contain; }
 /* When there's no client logo yet, a big initial-letter tile stands in
    -- same idea as the strategist photo placeholder below -- so the
    header never looks broken or empty before one's uploaded. */
 .client-logo-placeholder {
-  width: 76px; height: 76px; border-radius: 14px; background: #fdfdf9; color: var(--brand-strong);
+  width: 100%; height: 100%; color: var(--brand-strong);
   display: flex; align-items: center; justify-content: center; font-family: 'Libre Franklin', sans-serif;
-  font-weight: 800; font-size: 30px; box-shadow: var(--shadow);
+  font-weight: 800; font-size: 30px;
 }
-.client-logo-btn {
-  position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
-  font-size: 10.5px; padding: 4px 9px; white-space: nowrap;
+.client-logo-controls {
+  position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 4px; white-space: nowrap;
 }
+.client-logo-btn { font-size: 10.5px; padding: 4px 9px; }
+.logo-bg-input { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
 .masthead-client-text { min-width: 0; }
 .client-name-xl {
   font-family: 'Libre Franklin', sans-serif; font-weight: 800; font-size: 32px; color: #fff;
@@ -174,25 +185,25 @@ input { font-family: inherit; }
 .mojo-mini-brand img { border-radius: 5px; background: #fdfdf9; padding: 2px; }
 
 .strategist-card {
-  display: flex; align-items: center; gap: 10px; background: rgba(253,253,249,.13);
-  border: 1px solid rgba(253,253,249,.22); border-radius: 12px; padding: 8px 12px 8px 8px;
+  display: flex; align-items: center; gap: 12px; background: rgba(253,253,249,.13);
+  border: 1px solid rgba(253,253,249,.22); border-radius: 14px; padding: 10px 16px 10px 10px;
 }
 .strategist-photo-frame { position: relative; flex: none; }
 .strategist-photo, .strategist-photo-placeholder {
-  width: 40px; height: 40px; border-radius: 999px; object-fit: cover;
+  width: 62px; height: 62px; border-radius: 999px; object-fit: cover;
 }
 .strategist-photo-placeholder {
   background: #fdfdf9; color: var(--brand-strong); display: flex; align-items: center; justify-content: center;
-  font-family: 'Libre Franklin', sans-serif; font-weight: 800; font-size: 16px;
+  font-family: 'Libre Franklin', sans-serif; font-weight: 800; font-size: 23px;
 }
 .strategist-photo-btn {
   position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 999px; white-space: nowrap;
+  font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap;
   border: 1px solid var(--border); background: var(--surface); color: var(--ink-soft);
 }
 .strategist-info { text-align: left; line-height: 1.35; }
-.strategist-name { font-weight: 700; font-size: 13px; color: #fff; }
-.strategist-email { font-size: 11.5px; color: rgba(253,253,249,.75); }
+.strategist-name { font-weight: 700; font-size: 14.5px; color: #fff; }
+.strategist-email { font-size: 12px; color: rgba(253,253,249,.75); }
 
 .masthead-client-text [contenteditable="true"],
 .masthead-mojo [contenteditable="true"],
@@ -496,6 +507,12 @@ body.editing .edit-ctl { display: inline-flex; }
   margin: 0 1px; padding: 0;
 }
 .top-format-bar button.color-btn:hover { outline: 2px solid var(--border); outline-offset: 1px; }
+.bg-color-input { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; }
+.bg-clear-btn {
+  width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--ink-faint); font-size: 13px; display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.bg-clear-btn:hover { background: var(--surface-sunken); color: var(--ink); }
 .top-format-bar .toolbar-sep { width: 1px; align-self: stretch; margin: 2px 6px; background: var(--border); }
 .toolbar-flex-spacer { flex: 1; }
 .selection-indicator {

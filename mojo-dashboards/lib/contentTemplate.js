@@ -29,6 +29,11 @@ export function blankContent(clientName) {
       footerNote: `Prepared for ${clientName || "your client"} · Updated monthly`,
       updatedAt: new Date().toISOString(),
       clientLogo: "",
+      // The color swatch behind the client logo -- lets a white/light
+      // logo sit on something other than the fixed off-white default,
+      // same reasoning as clientLogo itself: a plain hex string, not
+      // prose, so it's never in RICH_TEXT_PATTERNS.
+      clientLogoBg: "",
       // The Marketing Strategist headshot shown on the masthead, next
       // to their name/title/email -- same data: URI approach as
       // clientLogo, uploaded and resized client-side (see

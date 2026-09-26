@@ -28,6 +28,8 @@ export default function FormatToolbar({
   onAlign,
   onFontSize,
   onColor,
+  onBgColor,
+  onClearBg,
   onUndo,
   canUndo,
 }) {
@@ -78,12 +80,31 @@ export default function FormatToolbar({
           <button
             key={c.hex}
             type="button"
-            title={c.label}
+            title={`Text: ${c.label}`}
             className="color-btn"
             style={{ "--swatch": c.hex }}
             onClick={() => onColor(c.hex)}
           />
         ))}
+      </div>
+      <span className="toolbar-sep" />
+      {/* Background color, on any selected box(es) -- a free color
+          picker rather than a fixed palette, since this can be set to
+          anything. Its own mousedown stops the wrapper's
+          preventDefault from reaching it, so the browser's native
+          color-picker dialog still opens normally. */}
+      <div className="top-format-group">
+        <input
+          type="color"
+          className="bg-color-input"
+          title="Background color"
+          defaultValue="#fff4d6"
+          onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => onBgColor(e.target.value)}
+        />
+        <button type="button" title="Clear background" className="bg-clear-btn" onClick={onClearBg}>
+          &times;
+        </button>
       </div>
 
       <span className="toolbar-flex-spacer" />

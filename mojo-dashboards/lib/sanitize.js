@@ -80,6 +80,9 @@ const ALLOWED_STYLES = {
   // write (see components/FormatToolbar.js), never an arbitrary
   // css value.
   color: [/^#[0-9a-f]{3,8}$/i],
+  // Same idea, for the top format bar's background-color picker --
+  // plus "transparent", which is what clearing a background writes.
+  "background-color": [/^#[0-9a-f]{3,8}$/i, /^transparent$/i],
 };
 
 export function sanitizeRichText(html) {
