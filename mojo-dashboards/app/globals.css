@@ -334,6 +334,11 @@ body.editing .edit-ctl { display: inline-flex; }
 .approval-btn svg { width: 13px; height: 13px; }
 .approval-btn.approve.on { border-color: var(--good); background: var(--good-tint); color: var(--good); }
 .approval-btn.edits.on { border-color: var(--gold); background: var(--gold-tint); color: var(--gold); }
+/* The three-way version (events/meetings: approve/reschedule/cancel) --
+   reschedule reads as "needs attention" (gold, same as needs-edits),
+   cancel is the one that should feel the most serious (red). */
+.approval-btn.reschedule.on { border-color: var(--gold); background: var(--gold-tint); color: var(--gold); }
+.approval-btn.cancel.on { border-color: var(--bad); background: var(--bad-tint); color: var(--bad); }
 .approval-comment {
   width: 100%; margin-top: 8px; border: 1px solid var(--border); background: var(--surface-sunken);
   border-radius: 9px; padding: 9px 11px; font-size: 13px; color: var(--ink); font-family: inherit; resize: vertical;
@@ -344,7 +349,8 @@ body.editing .edit-ctl { display: inline-flex; }
   font-size: 12px; font-weight: 700; padding: 6px 11px; border-radius: 999px;
 }
 .approval-badge.approved { background: var(--good-tint); color: var(--good); }
-.approval-badge.needs_edits { background: var(--gold-tint); color: var(--gold); }
+.approval-badge.needs_edits, .approval-badge.reschedule { background: var(--gold-tint); color: var(--gold); }
+.approval-badge.cancel { background: var(--bad-tint); color: var(--bad); }
 .approval-comment-ro { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-soft); font-style: italic; }
 
 /* ---------- Working on ---------- */
@@ -377,15 +383,45 @@ body.editing .edit-ctl { display: inline-flex; }
 .event-title { font-weight: 700; font-size: 13.5px; }
 .event-loc { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
 .event-main { flex: 1; }
-.cadence-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 13px 0; border-top: 1px solid var(--border); gap: 10px; }
+.event-main .approval-widget { margin-top: 10px; }
+/* .cadence-row is now a column: the original name/frequency/next-date
+   line (.cadence-row-top) stays a space-between row, with the
+   approve/reschedule/cancel widget stacked below it, full width. */
+.cadence-row { display: flex; flex-direction: column; padding: 13px 0; border-top: 1px solid var(--border); gap: 8px; }
 .cadence-row:first-child { border-top: none; }
+.cadence-row-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .cadence-name { font-weight: 700; font-size: 13.5px; }
 .cadence-freq { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
 .cadence-next { font-size: 12.5px; color: var(--brand-strong); font-weight: 700; white-space: nowrap; }
 
 /* ---------- Footer ---------- */
-.footer { margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-faint); }
-.footer strong { color: var(--ink-soft); }
+.footer {
+  margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 20px 32px; flex-wrap: wrap;
+  font-size: 12.5px; color: var(--ink-faint);
+}
+/* Each contact field (name/title/email/phone) is its own RichEditable,
+   which wraps in its own block-level .rich-field div -- left alone,
+   that stacks every one of them on its own line with a lone "·"
+   floating in between (the bug this replaces). Making that wrapper
+   inline here, and drawing the separator as a CSS ::after instead of a
+   literal " · " text node, is what lets them read as one flowing line
+   again while each piece stays independently editable. */
+.footer-contact { display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 4px; max-width: 62%; }
+.footer-contact .rich-field { display: inline-block; }
+.footer-contact .rich-field:not(:last-child)::after {
+  content: "·"; margin: 0 9px; color: var(--border); font-weight: 700;
+}
+.footer-name { font-weight: 700; color: var(--ink-soft); }
+.footer-detail { color: var(--ink-faint); }
+.footer-meta {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px; text-align: right;
+}
+.footer-updated { font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .footer-contact { max-width: 100%; }
+  .footer-meta { align-items: flex-start; text-align: left; }
+}
 
 .toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(0); z-index: 40;

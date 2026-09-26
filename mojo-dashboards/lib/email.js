@@ -31,11 +31,19 @@ export async function sendApprovalNotice({ to, clientName, itemLabel, status, co
 
   const from = process.env.EMAIL_FROM || "Mountain Mojo Dashboard <onboarding@resend.dev>";
   const approved = status === "approved";
-  const subject = approved
-    ? `${clientName} approved: ${itemLabel}`
-    : `${clientName} requested edits: ${itemLabel}`;
+  // Covers both flavors of this widget: approve/needs-edits on a
+  // review or question item, and approve/reschedule/cancel on an
+  // event or meeting -- same email, just different verbs.
+  const VERB = {
+    approved: "approved",
+    needs_edits: "requested edits on",
+    reschedule: "asked to reschedule",
+    cancel: "asked to cancel",
+  };
+  const verb = VERB[status] || "responded to";
+  const subject = `${clientName} ${approved ? "approved" : verb}: ${itemLabel}`;
   const bodyLines = [
-    `<p><strong>${escapeHtml(clientName)}</strong> ${approved ? "approved" : "requested edits on"} an item on their dashboard:</p>`,
+    `<p><strong>${escapeHtml(clientName)}</strong> ${verb} an item on their dashboard:</p>`,
     `<p style="font-size:16px;font-weight:700;margin:4px 0 12px;">${escapeHtml(itemLabel)}</p>`,
   ];
   if (!approved && comment) {

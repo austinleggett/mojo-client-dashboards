@@ -223,6 +223,72 @@ function ApprovalWidget({ status, comment, canRespond, onStatusChange, onComment
   );
 }
 
+// Same idea as ApprovalWidget, for an upcoming event or a recurring
+// meeting -- but "approve this copy" doesn't fit a calendar item, so
+// the three options here are Approve / Reschedule / Cancel, and the
+// conditional note box appears for either of the two that need a
+// client's input (a preferred new time, or a reason), not just one.
+function EventStatusWidget({ status, comment, canRespond, onStatusChange, onCommentCommit }) {
+  const effective = status || "pending";
+  const needsNote = effective === "reschedule" || effective === "cancel";
+  const [draft, setDraft] = useState(comment || "");
+  useEffect(() => {
+    setDraft(comment || "");
+  }, [comment]);
+
+  if (!canRespond) {
+    if (effective === "pending") return null;
+    const label =
+      effective === "approved" ? "Approved" : effective === "reschedule" ? "Reschedule requested" : "Cancellation requested";
+    return (
+      <div className={`approval-badge ${effective}`}>
+        <span>{label}</span>
+        {needsNote && comment && <p className="approval-comment-ro">{comment}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="approval-widget">
+      <div className="approval-toggle three">
+        <button
+          type="button"
+          className={`approval-btn approve${effective === "approved" ? " on" : ""}`}
+          onClick={() => onStatusChange(effective === "approved" ? "pending" : "approved")}
+        >
+          <CheckIcon /> Approve
+        </button>
+        <button
+          type="button"
+          className={`approval-btn reschedule${effective === "reschedule" ? " on" : ""}`}
+          onClick={() => onStatusChange(effective === "reschedule" ? "pending" : "reschedule")}
+        >
+          Reschedule
+        </button>
+        <button
+          type="button"
+          className={`approval-btn cancel${effective === "cancel" ? " on" : ""}`}
+          onClick={() => onStatusChange(effective === "cancel" ? "pending" : "cancel")}
+        >
+          Cancel
+        </button>
+      </div>
+      {needsNote && (
+        <textarea
+          className="approval-comment"
+          placeholder={effective === "reschedule" ? "What date/time works better?" : "Anything we should know? (optional)"}
+          rows={2}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => {
+            if (draft !== (comment || "")) onCommentCommit(draft);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 // Turns a hex accent color into the 3 shades the stylesheet expects
 // (base / a darker "strong" shade for text & headings / a very light
 // tint for subtle backgrounds), so picking one brand color is enough
@@ -758,12 +824,21 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
     }
   }
 
+  // A real date *and* time, not just a day -- this gets updated far
+  // more often than "monthly" now (approvals, formatting tweaks,
+  // content edits), so a bare date invites the same stale-sounding
+  // claim the old static footer text made. Used in both the sidebar
+  // and the footer, from the one saved meta.updatedAt timestamp (set
+  // whenever "Save changes" runs -- see handleSave), so it's always
+  // the actual last-save moment, never hand-typed.
   const updatedLabel = useMemo(() => {
     try {
-      return new Date(content.meta.updatedAt).toLocaleDateString("en-US", {
+      return new Date(content.meta.updatedAt).toLocaleString("en-US", {
         month: "long",
         day: "numeric",
         year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       });
     } catch {
       return "";
@@ -1122,6 +1197,13 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                   <div className="event-main">
                     <RichEditable as="span" className="event-title" value={ev.title} path={`events.items.${i}.title`} editing={editing} onCommit={commit} />
                     <RichEditable as="div" className="event-loc" value={ev.loc} path={`events.items.${i}.loc`} editing={editing} onCommit={commit} />
+                    <EventStatusWidget
+                      status={ev.status}
+                      comment={ev.clientComment}
+                      canRespond={canRespond}
+                      onStatusChange={(s) => respond(`events.items.${i}.status`, s)}
+                      onCommentCommit={(c) => respond(`events.items.${i}.clientComment`, c)}
+                    />
                   </div>
                   {editing && <RemoveBtn onClick={() => removeItem("events.items", i)} />}
                 </>
@@ -1140,14 +1222,23 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
             >
               {(m, i) => (
                 <>
-                  <div>
-                    <RichEditable as="span" className="cadence-name" value={m.name} path={`meetings.items.${i}.name`} editing={editing} onCommit={commit} />
-                    <RichEditable as="div" className="cadence-freq" value={m.freq} path={`meetings.items.${i}.freq`} editing={editing} onCommit={commit} />
+                  <div className="cadence-row-top">
+                    <div>
+                      <RichEditable as="span" className="cadence-name" value={m.name} path={`meetings.items.${i}.name`} editing={editing} onCommit={commit} />
+                      <RichEditable as="div" className="cadence-freq" value={m.freq} path={`meetings.items.${i}.freq`} editing={editing} onCommit={commit} />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <RichEditable as="span" className="cadence-next" value={m.next} path={`meetings.items.${i}.next`} editing={editing} onCommit={commit} />
+                      {editing && <RemoveBtn onClick={() => removeItem("meetings.items", i)} />}
+                    </div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <RichEditable as="span" className="cadence-next" value={m.next} path={`meetings.items.${i}.next`} editing={editing} onCommit={commit} />
-                    {editing && <RemoveBtn onClick={() => removeItem("meetings.items", i)} />}
-                  </div>
+                  <EventStatusWidget
+                    status={m.status}
+                    comment={m.clientComment}
+                    canRespond={canRespond}
+                    onStatusChange={(s) => respond(`meetings.items.${i}.status`, s)}
+                    onCommentCommit={(c) => respond(`meetings.items.${i}.clientComment`, c)}
+                  />
                 </>
               )}
             </SortableGroup>
@@ -1523,16 +1614,19 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
           )}
 
           <footer className="footer">
-            <div>
-              <RichEditable as="strong" value={content.meta.contactName} path="meta.contactName" editing={editing} onCommit={commit} />
-              {" · "}
-              <RichEditable as="span" value={content.meta.contactTitle} path="meta.contactTitle" editing={editing} onCommit={commit} />
-              {" · "}
-              <RichEditable as="span" value={content.meta.contactEmail} path="meta.contactEmail" editing={editing} onCommit={commit} />
-              {" · "}
-              <RichEditable as="span" value={content.meta.contactPhone} path="meta.contactPhone" editing={editing} onCommit={commit} />
+            <div className="footer-contact">
+              <RichEditable as="span" className="footer-name" value={content.meta.contactName} path="meta.contactName" editing={editing} onCommit={commit} />
+              <RichEditable as="span" className="footer-detail" value={content.meta.contactTitle} path="meta.contactTitle" editing={editing} onCommit={commit} />
+              <RichEditable as="span" className="footer-detail" value={content.meta.contactEmail} path="meta.contactEmail" editing={editing} onCommit={commit} />
+              <RichEditable as="span" className="footer-detail" value={content.meta.contactPhone} path="meta.contactPhone" editing={editing} onCommit={commit} />
             </div>
-            <RichEditable value={content.meta.footerNote} path="meta.footerNote" editing={editing} onCommit={commit} />
+            <div className="footer-meta">
+              <RichEditable as="span" className="footer-note" value={content.meta.footerNote} path="meta.footerNote" editing={editing} onCommit={commit} />
+              {/* A real, computed timestamp -- not hand-typed, so it
+                  can't say "Updated monthly" while actually changing
+                  more often than that. See updatedLabel above. */}
+              <span className="footer-updated">Last updated {updatedLabel}</span>
+            </div>
           </footer>
         </div>
       </div>

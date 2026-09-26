@@ -15,8 +15,14 @@ import { sendApprovalNotice } from "@/lib/email";
 // allowlist pattern before writing anything -- it's not just "check
 // the caller is allowed," it's "check this exact field is one the
 // caller is allowed to touch."
-const ALLOWED_PATH = /^(review\.groups\.\d+\.items\.\d+|questions\.items\.\d+)\.(status|clientComment)$/;
-const VALID_STATUS = new Set(["pending", "approved", "needs_edits"]);
+const ALLOWED_PATH =
+  /^(review\.groups\.\d+\.items\.\d+|questions\.items\.\d+|events\.items\.\d+|meetings\.items\.\d+)\.(status|clientComment)$/;
+// The union of every section's own set of options -- review/questions
+// use approved/needs_edits, events/meetings use approved/reschedule/
+// cancel. Not worth two separate sets just to reject a mismatched
+// pair (e.g. "reschedule" on a review item): nothing renders a status
+// the UI for that section never writes, so it's harmless either way.
+const VALID_STATUS = new Set(["pending", "approved", "needs_edits", "reschedule", "cancel"]);
 
 export async function PUT(request, { params }) {
   const staff = isStaffRequest(request);
@@ -66,13 +72,18 @@ export async function PUT(request, { params }) {
   });
 
   // Let the Marketing Strategist know the moment an actual client (not
-  // staff previewing/testing their own dashboard) approves something
-  // or asks for edits -- staff shouldn't get emailed about their own
-  // test clicks, so this only fires for a genuine client-portal caller.
-  if (!staff && path.endsWith(".status") && (value === "approved" || value === "needs_edits")) {
+  // staff previewing/testing their own dashboard) responds to
+  // something -- staff shouldn't get emailed about their own test
+  // clicks, so this only fires for a genuine client-portal caller, and
+  // only for an actual decision, never a reset back to "pending".
+  if (!staff && path.endsWith(".status") && value !== "pending") {
     const item = getPath(updated.content, parentPath) || {};
-    const itemLabel = item.title || item.store || "an item on the dashboard";
-    const anchor = path.startsWith("review.") ? "review" : "questions";
+    const itemLabel = item.title || item.name || item.store || "an item on the dashboard";
+    const anchor = path.startsWith("review.")
+      ? "review"
+      : path.startsWith("questions.")
+      ? "questions"
+      : "upcoming";
     // Awaited, not fire-and-forget -- a serverless function can be
     // frozen the instant the response goes out, which would cut off an
     // un-awaited send before it actually reaches Resend. sendApprovalNotice

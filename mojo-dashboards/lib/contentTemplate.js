@@ -26,7 +26,11 @@ export function blankContent(clientName) {
       contactTitle: "Marketing Strategist, Mountain Mojo Group",
       contactEmail: "you@mountainmojogroup.com",
       contactPhone: "480-292-0273",
-      footerNote: `Prepared for ${clientName || "your client"} · Updated monthly`,
+      // The real "last updated" date and time is computed and shown
+      // separately, right below this (see updatedLabel in
+      // Dashboard.js) -- this line is just free text, so it no longer
+      // needs to (and shouldn't) make its own claim about cadence.
+      footerNote: `Prepared exclusively for ${clientName || "your client"}`,
       updatedAt: new Date().toISOString(),
       clientLogo: "",
       // The color swatch behind the client logo -- lets a white/light
@@ -103,8 +107,13 @@ export const ITEM_TEMPLATES = {
   questionItem: () => ({ store: "Store", title: "New question", excerpt: "", response: "", status: "pending", clientComment: "" }),
   workingItem: () => "New task item",
   approvedItem: () => "New approved item",
-  eventItem: () => ({ mon: "JAN", day: "01", title: "New event", loc: "Location" }),
-  meetingItem: () => ({ name: "New meeting", freq: "Frequency", next: "Date" }),
+  // status/clientComment work the same way as a review/question item's
+  // (set by the client via the /respond API, not edited here by
+  // staff) -- just with a different set of options, since "approve
+  // this copy" doesn't make sense for a calendar event the way
+  // "approve / reschedule / cancel" does.
+  eventItem: () => ({ mon: "JAN", day: "01", title: "New event", loc: "Location", status: "pending", clientComment: "" }),
+  meetingItem: () => ({ name: "New meeting", freq: "Frequency", next: "Date", status: "pending", clientComment: "" }),
   statItem: () => ({ label: "New stat", value: "0", sub: "context", good: false }),
   // A brand-new, freeform section: a headline, an optional note, and
   // an orderable list of short rich-text cards -- the same shape as
