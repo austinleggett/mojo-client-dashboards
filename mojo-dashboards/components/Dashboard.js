@@ -492,6 +492,385 @@ function LinkMenu({ anchor, onOpen, onEdit, onRemove, onClose }) {
   );
 }
 
+
+// Plain text from a stored rich-text field.
+function htmlToText(html) {
+  if (typeof document === "undefined") return String(html || "").replace(/<[^>]*>/g, "");
+  const d = document.createElement("div");
+  d.innerHTML = html || "";
+  d.querySelectorAll("br").forEach((br) => br.replaceWith("\n"));
+  return (d.textContent || "").replace(/ /g, " ").trim();
+}
+const isOpen = (item) => (item.status || "pending") !== "approved";
+
+// On the Monthly Meeting tab: a one-line pointer to whatever is still
+// open on the Weekly Update, so those items live in one place only.
+function WeeklyOpenItems({ weekly, onOpen }) {
+  const review = (weekly.review?.groups || []).flatMap((g) => g.items || []).filter(isOpen).length;
+  const questions = (weekly.questions?.items || []).filter(isOpen).length;
+  if (!review && !questions) return null;
+  const parts = [];
+  if (review) parts.push(`${review} item${review === 1 ? "" : "s"} ready for your review`);
+  if (questions) parts.push(`${questions} open question${questions === 1 ? "" : "s"} & request${questions === 1 ? "" : "s"}`);
+  return (
+    <div className="weekly-open-items">
+      <span>
+        <b>From the weekly update:</b> {parts.join(" · ")}
+      </span>
+      <button type="button" className="mini-btn" onClick={onOpen}>
+        Open Weekly Update →
+      </button>
+    </div>
+  );
+}
+
+// Full-screen, slide-by-slide view of the Monthly Meeting tab, for
+// presenting on Zoom or in person: a title slide, one slide per
+// section (in the tab's own order), and a closing slide. Arrow keys,
+// space, or the on-screen arrows move between slides; Esc exits.
+function PresentMode({ content, sectionOrder, renderers, navLabelFor, onExit }) {
+  const meta = content.meta || {};
+  const slides = useMemo(
+    () => [{ kind: "title" }, ...sectionOrder.filter((id) => renderers[id]).map((id) => ({ kind: "section", id })), { kind: "end" }],
+    [sectionOrder, renderers]
+  );
+  const [i, setI] = useState(0);
+  const go = useCallback((d) => setI((n) => Math.max(0, Math.min(slides.length - 1, n + d))), [slides.length]);
+  useEffect(() => {
+    const el = document.documentElement;
+    if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().catch(() => {});
+    function onKey(e) {
+      if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) {
+        e.preventDefault();
+        go(1);
+      } else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) {
+        e.preventDefault();
+        go(-1);
+      } else if (e.key === "Escape") {
+        onExit();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    document.body.classList.add("presenting");
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.classList.remove("presenting");
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    };
+  }, [go, onExit]);
+  const slide = slides[i];
+  const next = (content.meetings?.items || [])[0];
+  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return (
+    <div className="present-overlay">
+      <div className="present-top">
+        <span className="present-client">{htmlToText(meta.clientName)}</span>
+        <span className="present-count">
+          {i + 1} / {slides.length}
+        </span>
+        <button type="button" className="present-exit" onClick={onExit}>
+          Exit (Esc)
+        </button>
+      </div>
+      <div className="present-stage" key={i}>
+        {slide.kind === "title" && (
+          <div className="present-title-slide">
+            {meta.clientLogo ? (
+              <div className="present-logo" style={{ background: meta.clientLogoBg || "#fdfdf9" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={meta.clientLogo} alt="" />
+              </div>
+            ) : null}
+            <h1>{htmlToText(meta.clientName)}</h1>
+            <p className="present-sub">Monthly Meeting · {today}</p>
+            {meta.contactName && (
+              <p className="present-with">
+                with {htmlToText(meta.contactName)}, {htmlToText(meta.contactTitle)}
+              </p>
+            )}
+          </div>
+        )}
+        {slide.kind === "section" && <div className="present-section">{renderers[slide.id]()}</div>}
+        {slide.kind === "end" && (
+          <div className="present-title-slide">
+            <h1>Thank you!</h1>
+            {next && (
+              <p className="present-sub">
+                {htmlToText(next.name)}: {htmlToText(next.next)}
+              </p>
+            )}
+            <p className="present-with">
+              {[meta.contactName, meta.contactEmail, meta.contactPhone].map(htmlToText).filter(Boolean).join(" · ")}
+            </p>
+          </div>
+        )}
+      </div>
+      <div className="present-nav">
+        <button type="button" onClick={() => go(-1)} disabled={i === 0} aria-label="Previous slide">
+          ←
+        </button>
+        <div className="present-dots">
+          {slides.map((sl, n) => (
+            <button
+              key={n}
+              type="button"
+              className={`present-dot${n === i ? " on" : ""}`}
+              onClick={() => setI(n)}
+              title={sl.kind === "section" ? navLabelFor(sl.id === "reviewQuestions" ? "review" : sl.id) : sl.kind === "title" ? "Title" : "Wrap-up"}
+            />
+          ))}
+        </div>
+        <button type="button" onClick={() => go(1)} disabled={i === slides.length - 1} aria-label="Next slide">
+          →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Builds this week's update email from the Weekly Update tab -- the
+// same sections, in the same order, as the page -- for staff to copy
+// into their own email. The HTML version keeps links and bold text
+// (it's the already-sanitized page content); the plain-text version is
+// the fallback for email apps that don't accept pasted formatting.
+function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, accent }) {
+  const meta = content.meta || {};
+  const client = htmlToText(meta.clientName) || "your team";
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const date = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  const blocks = []; // { title, items: [{ html, text, link? }] }
+  const cardLink = (it) => (it.link && safeUrl(it.link.url) ? { label: it.link.label || "Open link", url: safeUrl(it.link.url) } : null);
+  const join = (...parts) => parts.filter((p) => p && htmlToText(p)).join(" — ");
+
+  for (const id of sectionOrder) {
+    if (id === "reviewQuestions") {
+      const review = (content.review?.groups || []).flatMap((g) =>
+        (g.items || []).filter(isOpen).map((it) => ({ ...it, _group: g.label }))
+      );
+      if (review.length)
+        blocks.push({
+          title: navLabelFor("review"),
+          items: review.map((it) => ({
+            html: `<b>${it.title}</b>${htmlToText(it.store) ? ` (${it.store})` : ""}${htmlToText(it._group) ? ` · ${it._group}` : ""}${htmlToText(it.desc) ? `<br>${it.desc}` : ""}`,
+            text: `${htmlToText(it.title)}${htmlToText(it.store) ? ` (${htmlToText(it.store)})` : ""}${htmlToText(it._group) ? ` · ${htmlToText(it._group)}` : ""}${htmlToText(it.desc) ? `\n   ${htmlToText(it.desc)}` : ""}`,
+            link: cardLink(it),
+          })),
+        });
+      const qs = (content.questions?.items || []).filter(isOpen);
+      if (qs.length)
+        blocks.push({
+          title: navLabelFor("questions"),
+          items: qs.map((q) => ({
+            html: `<b>${q.title}</b>${htmlToText(q.store) ? ` (${q.store})` : ""}${htmlToText(q.excerpt) ? `<br><i>${q.excerpt}</i>` : ""}${htmlToText(q.response) ? `<br>${q.response}` : ""}`,
+            text: `${htmlToText(q.title)}${htmlToText(q.store) ? ` (${htmlToText(q.store)})` : ""}${htmlToText(q.excerpt) ? `\n   "${htmlToText(q.excerpt)}"` : ""}${htmlToText(q.response) ? `\n   ${htmlToText(q.response)}` : ""}`,
+            link: cardLink(q),
+          })),
+        });
+    } else if (id === "working") {
+      const cols = (content.working?.columns || []).filter((c) => (c.items || []).length);
+      if (cols.length)
+        blocks.push({
+          title: navLabelFor("working"),
+          items: cols.map((c) => ({
+            html: `<b>${c.label}:</b> ${c.items.join(" · ")}`,
+            text: `${htmlToText(c.label)}: ${c.items.map(htmlToText).join(" · ")}`,
+          })),
+        });
+    } else if (id === "approved") {
+      const items = content.approved?.items || [];
+      if (items.length) blocks.push({ title: navLabelFor("approved"), items: items.map((t) => ({ html: t, text: htmlToText(t) })) });
+    } else if (id === "upcoming") {
+      const evs = (content.events?.items || []).map((e) => ({
+        html: `<b>${htmlToText(e.mon)} ${htmlToText(e.day)}</b> — ${join(e.title, e.loc)}`,
+        text: `${htmlToText(e.mon)} ${htmlToText(e.day)} — ${[e.title, e.loc].map(htmlToText).filter(Boolean).join(" — ")}`,
+        link: cardLink(e),
+      }));
+      const ms = (content.meetings?.items || []).map((m) => ({
+        html: `<b>${m.name}</b> — ${join(m.next, m.freq)}`,
+        text: `${htmlToText(m.name)} — ${[m.next, m.freq].map(htmlToText).filter(Boolean).join(" — ")}`,
+        link: cardLink(m),
+      }));
+      if (evs.length || ms.length) blocks.push({ title: navLabelFor("upcoming"), items: [...evs, ...ms] });
+    } else if (id === "momentum") {
+      const items = content.momentum?.items || [];
+      if (items.length)
+        blocks.push({
+          title: navLabelFor("momentum"),
+          items: items.map((m) => ({ html: `<b>${m.month}:</b> ${m.text}`, text: `${htmlToText(m.month)}: ${htmlToText(m.text)}` })),
+        });
+    } else {
+      const cs = (content.customSections || []).find((c) => c.id === id);
+      if (cs && (cs.items || []).length)
+        blocks.push({
+          title: navLabelFor(id),
+          items: cs.items.map((it) => ({ html: it.text, text: htmlToText(it.text), link: cardLink(it) })),
+        });
+    }
+  }
+
+  const subject = `${client} weekly update · ${date}`;
+  const sign = [meta.contactName, meta.contactTitle, meta.contactEmail, meta.contactPhone].map(htmlToText).filter(Boolean);
+  const btn = (url, label) =>
+    `<a href="${esc(url)}" style="display:inline-block;background:${/^#[0-9a-f]{6}$/i.test(accent || "") ? accent : "#1f4d3a"};color:${contrastText(accent || "#1f4d3a")};padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:bold">${esc(label)} &rarr;</a>`;
+
+  const html =
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#232420">` +
+    `<p>Hi ${esc(client)} team,</p>` +
+    `<p>Here&rsquo;s your weekly update from Mountain Mojo: what&rsquo;s done, what&rsquo;s next, and what we need from you to keep moving.</p>` +
+    `<p>${btn(dashboardUrl, "Open your dashboard")}</p>` +
+    blocks
+      .map(
+        (b) =>
+          `<h3 style="font-size:15px;margin:18px 0 6px">${esc(b.title)}</h3><ul style="margin:0;padding-left:20px">` +
+          b.items
+            .map(
+              (it) =>
+                `<li style="margin-bottom:6px">${it.html}${it.link ? `<br><a href="${esc(it.link.url)}">${esc(it.link.label)} &rarr;</a>` : ""}</li>`
+            )
+            .join("") +
+          `</ul>`
+      )
+      .join("") +
+    `<p style="margin-top:18px">You can approve items or request edits right on your dashboard. Let us know if you have any questions!</p>` +
+    `<p>Thanks,<br>${sign.map(esc).join("<br>")}</p></div>`;
+
+  const text =
+    `Hi ${client} team,\n\nHere's your weekly update from Mountain Mojo: what's done, what's next, and what we need from you to keep moving.\n\nOpen your dashboard: ${dashboardUrl}\n` +
+    blocks
+      .map(
+        (b) =>
+          `\n${b.title.toUpperCase()}\n` +
+          b.items.map((it) => `• ${it.text}${it.link ? `\n   ${it.link.label}: ${it.link.url}` : ""}`).join("\n")
+      )
+      .join("\n") +
+    `\n\nYou can approve items or request edits right on your dashboard. Let us know if you have any questions!\n\nThanks,\n${sign.join("\n")}`;
+  return { subject, html, text, empty: blocks.length === 0 };
+}
+
+function WeeklyEmailModal({ content, sectionOrder, navLabelFor, dashboardUrl, accent, justPublished, onClose, onCopied }) {
+  // navLabelFor is a new function every render; the email only needs
+  // rebuilding when the content or section order actually change.
+  const email = useMemo(
+    () => buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, accent }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [content, sectionOrder, dashboardUrl, accent]
+  );
+  const [copied, setCopied] = useState("");
+  async function copy(kind) {
+    try {
+      if (kind === "body" && window.ClipboardItem && navigator.clipboard?.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([email.html], { type: "text/html" }),
+            "text/plain": new Blob([email.text], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(kind === "subject" ? email.subject : email.text);
+      }
+      setCopied(kind);
+      onCopied?.();
+    } catch {
+      setCopied("error");
+    }
+  }
+  return (
+    <div className="link-dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="link-dialog email-dialog" onKeyDown={(e) => e.key === "Escape" && onClose()}>
+        <h4>{justPublished ? "Published! Here's this week's email" : "This week's update email"}</h4>
+        <p className="email-hint">
+          Copy it into your own email to {htmlToText(content.meta?.clientName) || "the client"}. Links and bold text come along
+          when you paste into Gmail or Outlook.
+        </p>
+        <label>Subject</label>
+        <div className="email-subject-row">
+          <input type="text" readOnly value={email.subject} onFocus={(e) => e.target.select()} />
+          <button type="button" className="mini-btn" onClick={() => copy("subject")}>
+            {copied === "subject" ? "Copied ✓" : "Copy"}
+          </button>
+        </div>
+        <label>Email</label>
+        <div className="email-preview" dangerouslySetInnerHTML={{ __html: email.html }} />
+        {email.empty && <p className="link-dialog-error">The weekly tab doesn&apos;t have any open items yet.</p>}
+        {copied === "error" && <p className="link-dialog-error">Your browser blocked copying. Select the text above and copy it instead.</p>}
+        <div className="link-dialog-actions">
+          <button type="button" className="mini-btn" onClick={() => copy("text")}>
+            {copied === "text" ? "Copied ✓" : "Copy as plain text"}
+          </button>
+          <span style={{ flex: 1 }} />
+          <button type="button" className="mini-btn" onClick={onClose}>
+            Close
+          </button>
+          <button type="button" className="mini-btn primary" onClick={() => copy("body")}>
+            {copied === "body" ? "Copied ✓" : "Copy email"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Staff-only list of saved backups of this tab's published version.
+function HistoryModal({ slug, view, onClose, onRestore }) {
+  const [versions, setVersions] = useState(null);
+  const [error, setError] = useState("");
+  const [confirmId, setConfirmId] = useState(null);
+  useEffect(() => {
+    fetch(`/api/clients/${slug}/versions?view=${view}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Couldn't load history"))))
+      .then((j) => setVersions(j.versions || []))
+      .catch((e) => setError(e.message));
+  }, [slug, view]);
+  return (
+    <div className="link-dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="link-dialog" onKeyDown={(e) => e.key === "Escape" && onClose()}>
+        <h4>{view === "weekly" ? "Weekly Update" : "Monthly Meeting"} history</h4>
+        <p className="email-hint">
+          A backup of the published version is saved every time a draft is published (the latest 25 are kept). Only your
+          team can see these. Restoring one makes it the published version again, and backs up the current one first.
+        </p>
+        {error && <p className="link-dialog-error">{error}</p>}
+        {!versions && !error && <p className="email-hint">Loading…</p>}
+        {versions && versions.length === 0 && <p className="email-hint">No backups yet. One is saved the first time you publish a draft.</p>}
+        {versions && versions.length > 0 && (
+          <ul className="history-list">
+            {versions.map((v) => (
+              <li key={v.id}>
+                <div>
+                  <b>
+                    {new Date(v.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                  </b>
+                  <span>{v.note}</span>
+                </div>
+                {confirmId === v.id ? (
+                  <span className="history-confirm">
+                    <button type="button" className="mini-btn primary" onClick={() => onRestore(v.id)}>
+                      Yes, restore
+                    </button>
+                    <button type="button" className="mini-btn" onClick={() => setConfirmId(null)}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button type="button" className="mini-btn" onClick={() => setConfirmId(v.id)}>
+                    Restore
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="link-dialog-actions">
+          <span style={{ flex: 1 }} />
+          <button type="button" className="mini-btn" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Turns a hex accent color into the 3 shades the stylesheet expects
 // (base / a darker "strong" shade for text & headings / a very light
 // tint for subtle backgrounds), so picking one brand color is enough
@@ -592,8 +971,43 @@ function fileToLogoDataUrl(file, maxDim = 220) {
   });
 }
 
-export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
+export default function Dashboard({
+  client,
+  isStaff,
+  canRespond = isStaff,
+  // Weekly / Monthly tabs and drafts -- all owned by ClientDashboard,
+  // which remounts this component whenever the tab or mode changes.
+  view = "weekly",
+  mode = "live", // "live" | "draft" | "preview" | "empty"
+  hasMonthly = false,
+  draftViews = {},
+  weeklyLive = null,
+  onSwitchView,
+  onDraftAction,
+  onTogglePreview,
+  onSaved,
+  onDirtyChange,
+  openEmailOnMount = false,
+}) {
   const [content, setContent] = useState(client.content);
+  // What's on the server for this tab+mode, to tell whether there are
+  // unsaved edits (warns before leaving / switching tabs / publishing).
+  const [savedContent, setSavedContent] = useState(client.content);
+  const dirty = useMemo(() => JSON.stringify(content) !== JSON.stringify(savedContent), [content, savedContent]);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    if (!dirty) return undefined;
+    const warn = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty, onDirtyChange]);
+  const canEdit = isStaff && (mode === "live" || mode === "draft");
+  const [presenting, setPresenting] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(openEmailOnMount);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // ---------------------------------------------------------------
   // Undo. A simple linear history of *previous* content snapshots --
@@ -675,7 +1089,11 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
   // removing, or reordering a section always keeps the page and the
   // menu in lockstep instead of needing to be wired up twice.
   const sectionOrder =
-    content.sectionOrder && content.sectionOrder.length ? content.sectionOrder : DEFAULT_SECTION_ORDER;
+    mode === "empty"
+      ? []
+      : content.sectionOrder && content.sectionOrder.length
+      ? content.sectionOrder
+      : DEFAULT_SECTION_ORDER;
   const customSectionsById = Object.fromEntries((content.customSections || []).map((c) => [c.id, c]));
   // reviewQuestions is one draggable block but renders two separate
   // anchors ("Ready for Review" and "Questions & Requests"), so it's
@@ -1138,6 +1556,8 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          view,
+          target: mode === "draft" ? "draft" : "live",
           content: { ...content, meta: { ...content.meta, updatedAt: new Date().toISOString() } },
           accentColor,
         }),
@@ -1146,9 +1566,11 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Save failed (${res.status})`);
       }
-      const { content: saved } = await res.json();
+      const { saved, client: updatedClient } = await res.json();
       setContent(saved);
-      showToast("Saved");
+      setSavedContent(saved);
+      onSaved?.(updatedClient);
+      showToast(mode === "draft" ? "Draft saved -- the client still sees the published version" : "Saved");
     } catch (err) {
       showToast(err.message || "Save failed");
     } finally {
@@ -1169,7 +1591,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       const res = await fetch(`/api/clients/${client.slug}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, clientPassword: nextPassword }),
+        body: JSON.stringify({ clientPassword: nextPassword }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1189,18 +1611,27 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
   // through the staff "Save changes" flow -- a client viewing their
   // portal never sees or uses that button.
   async function respond(path, value) {
+    // In a draft, a status click is just part of the draft (saved with
+    // "Save changes"); clients only ever respond on the published page.
+    if (mode === "draft") {
+      commit(path, value);
+      return;
+    }
+    if (mode !== "live") return;
     try {
       const res = await fetch(`/api/clients/${client.slug}/respond`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, value }),
+        body: JSON.stringify({ path, value, view }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Couldn't save that.");
       }
-      const { content: saved } = await res.json();
-      setContent(saved);
+      // Update just that one field locally, so a staff member's
+      // unsaved edits elsewhere on the page aren't wiped out.
+      setContent((prev) => setPath(prev, path, value));
+      setSavedContent((prev) => setPath(prev, path, value));
     } catch (err) {
       showToast(err.message || "Couldn't save that.");
     }
@@ -1295,8 +1726,8 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       <section id="momentum" className="section">
         <div className="section-head">
           <div>
-            <span className="eyebrow">Momentum</span>
-            <h2>What&apos;s been moving</h2>
+            <RichEditable as="span" className="eyebrow" value={getPath(content, "headings.momentum.eyebrow") ?? "Momentum"} path="headings.momentum.eyebrow" editing={editing} onCommit={commit} />
+            <RichEditable as="h2" value={getPath(content, "headings.momentum.heading") ?? "What's been moving"} path="headings.momentum.heading" editing={editing} onCommit={commit} />
           </div>
         </div>
         <SortableGroup
@@ -1327,8 +1758,8 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       <section id="stores" className="section">
         <div className="section-head">
           <div>
-            <span className="eyebrow">Store Spotlights</span>
-            <h2>Location-by-location notes</h2>
+            <RichEditable as="span" className="eyebrow" value={getPath(content, "headings.stores.eyebrow") ?? "Store Spotlights"} path="headings.stores.eyebrow" editing={editing} onCommit={commit} />
+            <RichEditable as="h2" value={getPath(content, "headings.stores.heading") ?? "Location-by-location notes"} path="headings.stores.heading" editing={editing} onCommit={commit} />
           </div>
         </div>
         <SortableGroup
@@ -1374,7 +1805,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
         <section id="review" className="section" style={{ marginTop: 0 }}>
           <div className="panel">
             <div className="panel-head">
-              <h3>Ready for Your Review</h3>
+              <RichEditable as="h3" value={getPath(content, "headings.review.heading") ?? "Ready for Your Review"} path="headings.review.heading" editing={editing} onCommit={commit} />
               <span className="count-badge">
                 {content.review.groups.reduce((n, g) => n + g.items.length, 0)}
               </span>
@@ -1435,7 +1866,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
         <section id="questions" className="section" style={{ marginTop: 0 }}>
           <div className="panel">
             <div className="panel-head">
-              <h3>Questions &amp; Requests</h3>
+              <RichEditable as="h3" value={getPath(content, "headings.questions.heading") ?? "Questions & Requests"} path="headings.questions.heading" editing={editing} onCommit={commit} />
               <span className="count-badge">{content.questions.items.length}</span>
             </div>
             <SortableGroup
@@ -1485,8 +1916,8 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       <section id="working" className="section">
         <div className="section-head">
           <div>
-            <span className="eyebrow">In Progress</span>
-            <h2>What we&apos;re working on</h2>
+            <RichEditable as="span" className="eyebrow" value={getPath(content, "headings.working.eyebrow") ?? "In Progress"} path="headings.working.eyebrow" editing={editing} onCommit={commit} />
+            <RichEditable as="h2" value={getPath(content, "headings.working.heading") ?? "What we're working on"} path="headings.working.heading" editing={editing} onCommit={commit} />
           </div>
         </div>
         <div className="work-grid">
@@ -1525,8 +1956,8 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       <section id="approved" className="section">
         <div className="section-head">
           <div>
-            <span className="eyebrow">Approved &amp; Live</span>
-            <h2>Recently shipped</h2>
+            <RichEditable as="span" className="eyebrow" value={getPath(content, "headings.approved.eyebrow") ?? "Approved & Live"} path="headings.approved.eyebrow" editing={editing} onCommit={commit} />
+            <RichEditable as="h2" value={getPath(content, "headings.approved.heading") ?? "Recently shipped"} path="headings.approved.heading" editing={editing} onCommit={commit} />
           </div>
         </div>
         <SortableGroup
@@ -1558,13 +1989,13 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
       <section id="upcoming" className="section">
         <div className="section-head">
           <div>
-            <span className="eyebrow">What&apos;s Ahead</span>
-            <h2>Events &amp; meeting cadence</h2>
+            <RichEditable as="span" className="eyebrow" value={getPath(content, "headings.upcoming.eyebrow") ?? "What's Ahead"} path="headings.upcoming.eyebrow" editing={editing} onCommit={commit} />
+            <RichEditable as="h2" value={getPath(content, "headings.upcoming.heading") ?? "Events & meeting cadence"} path="headings.upcoming.heading" editing={editing} onCommit={commit} />
           </div>
         </div>
         <div className="upcoming-grid">
           <div className="panel panel-pad">
-            <h4>Upcoming events</h4>
+            <RichEditable as="h4" value={getPath(content, "headings.upcoming.events") ?? "Upcoming events"} path="headings.upcoming.events" editing={editing} onCommit={commit} />
             <SortableGroup
               idPrefix="events.items"
               items={content.events.items}
@@ -1597,7 +2028,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
             {editing && <div style={{ marginTop: 8 }}><AddBtn label="Add event" onClick={() => addItem("events.items", ITEM_TEMPLATES.eventItem)} /></div>}
           </div>
           <div className="panel panel-pad">
-            <h4>Meeting cadence</h4>
+            <RichEditable as="h4" value={getPath(content, "headings.upcoming.meetings") ?? "Meeting cadence"} path="headings.upcoming.meetings" editing={editing} onCommit={commit} />
             <SortableGroup
               idPrefix="meetings.items"
               items={content.meetings.items}
@@ -1839,11 +2270,11 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                     Done editing
                   </button>
                 </>
-              ) : (
+              ) : canEdit ? (
                 <button type="button" className="side-btn ghost" onClick={() => setEditing(true)}>
-                  Edit this page
+                  {mode === "draft" ? "Edit draft" : "Edit this page"}
                 </button>
-              )}
+              ) : null}
               <a href="/admin" className="side-link">
                 &larr; All clients
               </a>
@@ -1985,7 +2416,111 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
           </div>
         </header>
 
+        {(hasMonthly || isStaff) && (
+          <div className="view-tabs-bar">
+            <div className="view-tabs" role="tablist">
+              {[
+                ["weekly", "Weekly Update"],
+                ["monthly", "Monthly Meeting"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === id}
+                  className={`view-tab${view === id ? " on" : ""}`}
+                  onClick={() => view !== id && onSwitchView?.(id)}
+                >
+                  {label}
+                  {isStaff && draftViews[id] && <span className="view-tab-draft">Draft</span>}
+                </button>
+              ))}
+            </div>
+            {view === "monthly" && mode !== "empty" && !editing && (
+              <button type="button" className="present-btn" onClick={() => setPresenting(true)}>
+                ▶ Present
+              </button>
+            )}
+          </div>
+        )}
+
+        {isStaff && mode !== "empty" && (
+          <div className={`mode-banner mode-${mode}`}>
+            <div className="mode-banner-text">
+              {mode === "live" && (
+                <>
+                  <b>Live</b> &middot; edits here save straight to what the client sees.
+                </>
+              )}
+              {mode === "draft" && (
+                <>
+                  <b>Draft</b> &middot; the client still sees the published version until you publish.
+                  {dirty && <span className="mode-unsaved"> Unsaved changes</span>}
+                </>
+              )}
+              {mode === "preview" && (
+                <>
+                  <b>Previewing the published version</b> &middot; this is what the client sees right now.
+                </>
+              )}
+            </div>
+            <div className="mode-banner-actions">
+              {mode === "live" && (
+                <button type="button" className="mini-btn primary" onClick={() => onDraftAction?.("start")} disabled={dirty}>
+                  Start a draft
+                </button>
+              )}
+              {mode === "draft" && (
+                <>
+                  <button type="button" className="mini-btn" onClick={onTogglePreview}>
+                    Preview client view
+                  </button>
+                  <button
+                    type="button"
+                    className="mini-btn primary"
+                    onClick={() => (dirty ? showToast("Save your changes first, then publish") : onDraftAction?.("publish"))}
+                  >
+                    Publish draft
+                  </button>
+                  <button type="button" className="mini-btn danger" onClick={() => onDraftAction?.("discard")}>
+                    Discard draft
+                  </button>
+                </>
+              )}
+              {mode === "preview" && (
+                <button type="button" className="mini-btn primary" onClick={onTogglePreview}>
+                  Back to the draft
+                </button>
+              )}
+              {view === "weekly" && (
+                <button type="button" className="mini-btn" onClick={() => setEmailOpen(true)}>
+                  ✉ Weekly email
+                </button>
+              )}
+              <button type="button" className="mini-btn" onClick={() => setHistoryOpen(true)}>
+                History
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="wrap">
+          {view === "monthly" && weeklyLive && <WeeklyOpenItems weekly={weeklyLive} onOpen={() => onSwitchView?.("weekly")} />}
+
+          {mode === "empty" && (
+            <div className="empty-tab-card">
+              <h2>Set up the Monthly Meeting tab</h2>
+              <p>
+                Starts a draft with the monthly meeting layout: goal progress, goal scorecard, highlights, report
+                review, what&apos;s upcoming, action items and the next meeting. The client won&apos;t see this tab until
+                you publish it.
+              </p>
+              <button type="button" className="mini-btn primary" onClick={() => onDraftAction?.("start")}>
+                Set up Monthly Meeting
+              </button>
+            </div>
+          )}
+
           <SortableGroup
             idPrefix="section"
             items={sectionOrder}
@@ -2043,6 +2578,39 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
           </footer>
         </div>
       </div>
+
+      {presenting && (
+        <PresentMode
+          content={content}
+          sectionOrder={sectionOrder}
+          renderers={sectionRenderers}
+          navLabelFor={navLabelFor}
+          onExit={() => setPresenting(false)}
+        />
+      )}
+      {emailOpen && (
+        <WeeklyEmailModal
+          content={content}
+          sectionOrder={sectionOrder}
+          navLabelFor={navLabelFor}
+          dashboardUrl={typeof window !== "undefined" ? `${window.location.origin}/c/${client.slug}` : ""}
+          accent={accentColor}
+          justPublished={openEmailOnMount}
+          onClose={() => setEmailOpen(false)}
+          onCopied={() => showToast("Email copied -- paste it into your email")}
+        />
+      )}
+      {historyOpen && (
+        <HistoryModal
+          slug={client.slug}
+          view={view}
+          onClose={() => setHistoryOpen(false)}
+          onRestore={(versionId) => {
+            setHistoryOpen(false);
+            onDraftAction?.("restore", { versionId });
+          }}
+        />
+      )}
 
       <div className={`toast${toast ? " show" : ""}`}>{toast}</div>
     </div>

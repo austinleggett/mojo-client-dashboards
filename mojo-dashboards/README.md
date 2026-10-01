@@ -138,3 +138,54 @@ Safety: only http, https, mailto and tel links are allowed
 (`lib/links.js`), and the server re-checks every link on save
 (`lib/sanitize.js`), forcing external links to open in a new tab with
 rel="noopener noreferrer". Anything else is stripped to plain text.
+
+## Weekly Update & Monthly Meeting tabs
+
+Each client's link has two tabs:
+
+- **Weekly Update** -- the weekly touch point: Ready for Review,
+  Questions & Updates, What We're Working On, Approved & Live, and
+  upcoming dates. Stored in `Client.content` (which also holds the
+  shared `meta`: client name, logo, contact info).
+- **Monthly Meeting** -- the monthly agenda: goal progress, goal
+  scorecard, highlights, report review, what's upcoming, action items,
+  next meeting. Stored in `Client.monthlyContent`. The client doesn't
+  see this tab until it's been set up and published. It shows a short
+  "From the weekly update" pointer to anything still open on the
+  Weekly tab, so those items live in one place only.
+
+Both tabs use the same section building blocks, and every built-in
+section's eyebrow/heading is now editable (`content.headings`).
+
+**Present mode** (Monthly tab, "▶ Present"): full-screen, one section
+per slide, with a title slide and a wrap-up slide. Arrow keys / space
+to move, Esc to exit.
+
+## Drafts, publishing and history
+
+- Turn a tab to **Draft** from the client list (`/admin`) or the
+  "Start a draft" button on the page. The client keeps seeing the
+  published version while the team edits the draft
+  (`Client.draftContent` / `draftMonthlyContent`).
+- **Preview client view** shows the published version; **Publish draft**
+  makes the draft live; **Discard draft** throws it away.
+- Every publish (and restore) saves the version it replaces to
+  `ClientVersion` (staff-only, newest 25 per tab). **History** lists
+  them with a Restore button.
+- If the client approves or comments on the published page while a
+  draft is open, the response is copied onto the matching item (same
+  title) in the draft, so publishing doesn't lose it.
+- Logo, brand color and contact details aren't drafted -- they always
+  save straight to the live page.
+- Publishing the Weekly tab opens **this week's update email**, ready to
+  copy into your own email (also available any time from "✉ Weekly
+  email").
+
+API: `POST /api/clients/<slug>/draft` `{ view, action: start|publish|discard|restore, versionId? }`,
+`GET /api/clients/<slug>/versions?view=`, and `PUT /api/clients/<slug>`
+now takes optional `view` (weekly|monthly) and `target` (live|draft).
+The public `GET /api/clients/<slug>` never includes drafts.
+
+Database: the first deploy adds four nullable columns and one table via
+`prisma db push` (part of the build script). Nothing existing is
+changed; existing clients' content becomes their Weekly Update tab.

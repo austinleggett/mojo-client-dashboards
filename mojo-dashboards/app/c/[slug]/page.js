@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { prisma, toSafeClient } from "@/lib/db";
+import { prisma, toSafeClient, toPublicClient } from "@/lib/db";
 import {
   isStaff,
   isClientAuthorized,
@@ -8,7 +8,7 @@ import {
   createClientSessionToken,
   clientCookieName,
 } from "@/lib/auth";
-import Dashboard from "@/components/Dashboard";
+import ClientDashboard from "@/components/ClientDashboard";
 
 export const dynamic = "force-dynamic"; // always read fresh content, never cache someone else's edits
 
@@ -90,7 +90,12 @@ export default async function ClientDashboardPage({ params, searchParams }) {
           Staff view — you can edit this page. <a href="/admin">All clients</a>
         </div>
       )}
-      <Dashboard client={toSafeClient(client)} isStaff={staff} canRespond={clientAuthed} />
+      <ClientDashboard
+        client={staff ? toSafeClient(client) : toPublicClient(client)}
+        isStaff={staff}
+        canRespond={clientAuthed}
+        initialView={searchParams?.view === "monthly" ? "monthly" : "weekly"}
+      />
     </>
   );
 }

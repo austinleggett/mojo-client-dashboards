@@ -58,6 +58,10 @@ export const RICH_TEXT_PATTERNS = [
   "meetings.items.*.freq",
   "meetings.items.*.next",
   "customSections.*.heading",
+  "headings.*.eyebrow",
+  "headings.*.heading",
+  "headings.*.events",
+  "headings.*.meetings",
   "customSections.*.note",
   "customSections.*.items.*.text",
 ];

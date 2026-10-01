@@ -1,7 +1,7 @@
 // Single shared Prisma client. Next.js reloads modules on every request
 // in dev, so we stash the client on `global` to avoid opening a new DB
 // connection pool on every hot-reload.
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 
 const globalForPrisma = globalThis;
 
@@ -27,3 +27,26 @@ export function toSafeClient(client) {
   const { clientPassword, ...safe } = client;
   return safe;
 }
+
+// What a non-staff viewer (the client, or anyone with the link) gets:
+// published content only. Drafts are staff work-in-progress and never
+// leave the server for anyone else.
+export function toPublicClient(client) {
+  if (!client) return client;
+  const { clientPassword, draftContent, draftMonthlyContent, versions, ...pub } = client;
+  return pub;
+}
+
+// The two tabs' columns, by view name.
+export const VIEW_FIELDS = {
+  weekly: { live: "content", draft: "draftContent" },
+  monthly: { live: "monthlyContent", draft: "draftMonthlyContent" },
+};
+
+export function isView(v) {
+  return v === "weekly" || v === "monthly";
+}
+
+// Prisma needs this explicit marker (not plain null) to clear a
+// nullable Json column, e.g. when a draft is published or discarded.
+export const DB_NULL = Prisma.DbNull;

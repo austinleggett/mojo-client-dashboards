@@ -34,7 +34,35 @@ model Client {
   // lib/db.js's toSafeClient, used everywhere a Client record reaches
   // client-rendered code or a JSON response).
   clientPassword String?
+  // The Weekly Update tab, as the client sees it. Also holds `meta`
+  // (client name, logo, strategist contact...), which is shared by both
+  // tabs and never drafted -- see app/api/clients/[slug]/route.js.
   content     Json
+  // The Monthly Meeting tab, as the client sees it. Null until staff
+  // set the tab up (the client doesn't see a Monthly tab until then).
+  monthlyContent Json?
+  // Work-in-progress drafts of each tab. While one exists, staff edit
+  // the draft and the client keeps seeing the published version above;
+  // "Publish" copies the draft over it (saving the old one to
+  // ClientVersion first) and clears the draft.
+  draftContent        Json?
+  draftMonthlyContent Json?
+  versions    ClientVersion[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Staff-only backups: the published version of a tab as it was just
+// before each publish (or restore), so a bad publish can be rolled
+// back. The newest 25 per tab are kept.
+model ClientVersion {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  view      String   // "weekly" | "monthly"
+  content   Json
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([clientId, view, createdAt])
 }

@@ -17,6 +17,13 @@ export const DEFAULT_SECTION_ORDER = [
   "upcoming",
 ];
 
+// New clients' Weekly Update tab starts with just the weekly
+// touch-point sections (what's ready for review, questions/needs,
+// what we're working on, what's live, what's coming up). Reporting
+// lives on the Monthly Meeting tab instead. Existing clients keep
+// whatever sectionOrder they already have.
+export const WEEKLY_SECTION_ORDER = ["reviewQuestions", "working", "approved", "upcoming"];
+
 export function blankContent(clientName) {
   return {
     meta: {
@@ -44,7 +51,7 @@ export function blankContent(clientName) {
       // fileToLogoDataUrl in Dashboard.js), no separate storage needed.
       contactPhoto: "",
     },
-    sectionOrder: DEFAULT_SECTION_ORDER.slice(),
+    sectionOrder: WEEKLY_SECTION_ORDER.slice(),
     // Sidebar nav labels, keyed by section id -- editable in edit mode
     // (see the sidebar render in Dashboard.js). Seeded from
     // NAV_SECTIONS' default labels; older saved clients won't have
@@ -168,4 +175,63 @@ export function makeSlug(name) {
     .slice(0, 48);
   const suffix = Math.random().toString(36).slice(2, 8);
   return `${base || "client"}-${suffix}`;
+}
+
+// The Monthly Meeting tab's starting point -- the same section building
+// blocks as the weekly tab (so everything renders and edits the same
+// way), arranged and labeled like the monthly meeting agenda: goal
+// progress, the scorecard, highlights, report review, what's upcoming,
+// action items, and the next meeting. No `meta` here: client name,
+// logo and contact info are shared with the weekly tab (they live in
+// the weekly content's meta and are never drafted).
+export function blankMonthlyContent() {
+  const base = blankContent("");
+  delete base.meta;
+  return {
+    ...base,
+    sectionOrder: ["recap", "custom-goals", "momentum", "custom-report", "working", "custom-actions", "upcoming"],
+    nav: {
+      recap: "Goal Progress",
+      momentum: "Highlights",
+      working: "What's Upcoming",
+      upcoming: "Next Meeting",
+    },
+    headings: {
+      momentum: { eyebrow: "Highlights", heading: "What's working" },
+      working: { eyebrow: "A look ahead", heading: "What's upcoming" },
+      upcoming: { eyebrow: "Our next meeting", heading: "Dates & next meeting", events: "Key dates", meetings: "Next meeting" },
+    },
+    recap: {
+      eyebrow: "Goal progress",
+      heading: "Add this month's headline",
+      note: "A quick reminder of the objectives guiding our strategy, and where each one stands.",
+      stats: [{ label: "Stat label", value: "0", sub: "vs. target", good: false }],
+      footnote: [],
+    },
+    working: {
+      columns: [
+        { label: "This month", items: [] },
+        { label: "Next month", items: [] },
+        { label: "Changes being made", items: [] },
+      ],
+    },
+    customSections: [
+      { id: "custom-goals", label: "Goal Scorecard", heading: "Where each goal stands", note: "", items: [] },
+      {
+        id: "custom-report",
+        label: "Report Review",
+        heading: "Report review",
+        note: "Dive into the data: what's working and what's not.",
+        items: [],
+      },
+      {
+        id: "custom-actions",
+        label: "Action Items",
+        heading: "Action items",
+        note: "What came out of this meeting.",
+        items: [{ text: "<b>Your action items</b><br>Add an item…" }, { text: "<b>Mojo's action items</b><br>Add an item…" }],
+      },
+    ],
+    meetings: { items: [{ name: "Monthly meeting", freq: "Monthly", next: "Date", status: "pending", clientComment: "" }] },
+  };
 }

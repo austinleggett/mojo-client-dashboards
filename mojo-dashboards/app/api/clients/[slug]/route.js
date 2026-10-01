@@ -1,58 +1,75 @@
 import { NextResponse } from "next/server";
-import { prisma, toSafeClient } from "@/lib/db";
+import { prisma, toSafeClient, toPublicClient, VIEW_FIELDS, isView } from "@/lib/db";
 import { isAuthorizedRequest } from "@/lib/auth";
 import { sanitizeContent } from "@/lib/sanitize";
+import { withoutMeta } from "@/lib/drafts";
 
 // GET is intentionally public -- this is what an automated caller
 // (Claude, a script) reads before editing content via PUT, no token
-// needed. It predates the client portal login and its access model is
-// unchanged by that: this always returns content, on the same
-// "you have the unguessable slug" basis as the dashboard link itself.
-// What must never happen, portal login or not, is clientPassword
-// riding along in this public response -- toSafeClient strips it.
-export async function GET(_request, { params }) {
+// needed, on the same "you have the unguessable slug" basis as the
+// dashboard link itself. It only ever returns the *published* tabs;
+// drafts are included only for a signed-in staff member or an
+// AUTOMATION_TOKEN caller. clientPassword never rides along either
+// way (toSafeClient / toPublicClient strip it).
+export async function GET(request, { params }) {
   const client = await prisma.client.findUnique({ where: { slug: params.slug } });
   if (!client || !client.active) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
-  return NextResponse.json({ client: toSafeClient(client) });
+  const payload = isAuthorizedRequest(request) ? toSafeClient(client) : toPublicClient(client);
+  return NextResponse.json({ client: payload });
 }
 
 // Lowercase letters, digits, and single hyphens between words -- the
-// same shape makeSlug() (lib/contentTemplate.js) generates, just
-// enforced here too now that a person can type one by hand instead of
-// only ever getting a randomly-generated one.
+// same shape makeSlug() (lib/contentTemplate.js) generates.
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 // PUT (save edits) and DELETE require the staff cookie or an
 // AUTOMATION_TOKEN bearer token.
 //
-// Body: { content?, accentColor?, clientPassword?, slug? }. All
-// optional individually -- a caller can send just one field it wants
-// to change (e.g. the admin page's URL editor sends only `slug`)
-// without having to resend the whole page. `content` is sanitized
-// here (the handful of rich-text fields get run through sanitize-html;
-// every other field passes through untouched -- see lib/sanitize.js)
-// so a malicious or malformed edit can never persist as live HTML on
-// the public dashboard link, regardless of which door it came through.
-// `clientPassword` sets or changes the client portal's password (empty
-// string clears it, turning the portal login back off); omit it
-// entirely to leave the current password untouched. `slug` renames the
-// dashboard's own URL (/c/<slug>) -- doing this immediately breaks any
-// link using the old slug, including one already sent to the client,
-// so this is a deliberate rename, not a redirect-and-keep-the-old-one.
+// Body: { content?, view?, target?, accentColor?, clientPassword?, slug? }.
+//
+// - `content` with no `view` (or view "weekly", target "live") replaces
+//   the published Weekly Update -- the original behavior, unchanged for
+//   existing automation.
+// - `view` ("weekly" | "monthly") and `target` ("live" | "draft") pick
+//   which tab and which copy `content` is saved to. Saving to "draft"
+//   creates the draft if there isn't one yet.
+// - The shared `meta` block (client name, logo, contact...) is never
+//   drafted: whatever `content.meta` is sent is always written to the
+//   live weekly content, so branding/contact edits made from any tab
+//   or mode land in one place.
+//
+// Every `content` is sanitized (lib/sanitize.js) on the way in.
 export async function PUT(request, { params }) {
   if (!isAuthorizedRequest(request)) {
     return NextResponse.json({ error: "Not authorized." }, { status: 401 });
   }
   const body = await request.json().catch(() => ({}));
+  const existing = await prisma.client.findUnique({ where: { slug: params.slug } });
+  if (!existing) {
+    return NextResponse.json({ error: "Client not found." }, { status: 404 });
+  }
+
+  const view = body.view === undefined ? "weekly" : body.view;
+  const target = body.target === undefined ? "live" : body.target;
+  if (!isView(view) || (target !== "live" && target !== "draft")) {
+    return NextResponse.json({ error: "Unknown view or target." }, { status: 400 });
+  }
 
   const data = {};
   if (body.content !== undefined) {
     if (typeof body.content !== "object" || body.content === null) {
       return NextResponse.json({ error: "Missing content." }, { status: 400 });
     }
-    data.content = sanitizeContent(body.content);
+    const clean = sanitizeContent(body.content);
+    if (view === "weekly" && target === "live") {
+      // Keep the existing meta if the caller didn't send one.
+      data.content = clean.meta ? clean : { ...clean, meta: existing.content?.meta };
+    } else {
+      data[VIEW_FIELDS[view][target]] = withoutMeta(clean);
+      if (clean.meta) data.content = { ...(existing.content || {}), meta: clean.meta };
+    }
   }
   if (typeof body.accentColor === "string" && body.accentColor.trim()) {
     data.accentColor = body.accentColor.trim();
@@ -75,11 +92,13 @@ export async function PUT(request, { params }) {
   }
 
   try {
-    const client = await prisma.client.update({
-      where: { slug: params.slug },
-      data,
-    });
-    return NextResponse.json({ client: toSafeClient(client), content: client.content });
+    const client = await prisma.client.update({ where: { slug: params.slug }, data });
+    // `content` in the response stays the published weekly content, as
+    // before; `saved` is the doc that was just written (meta merged in),
+    // which is what the editor reloads from.
+    const savedDoc = body.content === undefined ? null : client[VIEW_FIELDS[view][target]];
+    const saved = savedDoc ? { ...savedDoc, meta: client.content?.meta } : null;
+    return NextResponse.json({ client: toSafeClient(client), content: client.content, saved });
   } catch (err) {
     if (err?.code === "P2002") {
       return NextResponse.json({ error: "That URL is already taken by another client." }, { status: 409 });

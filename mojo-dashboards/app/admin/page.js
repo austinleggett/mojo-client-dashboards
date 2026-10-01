@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { isStaff } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import SlugEditor from "@/components/SlugEditor";
+import DraftToggles from "@/components/DraftToggles";
 
 export default async function AdminPage() {
   if (!isStaff()) redirect("/staff-login");
@@ -47,6 +48,14 @@ export default async function AdminPage() {
                   </div>
                 </div>
               </div>
+              <DraftToggles
+                slug={c.slug}
+                initial={{
+                  weekly: !!c.draftContent,
+                  monthly: !!c.draftMonthlyContent,
+                  hasMonthly: !!c.monthlyContent,
+                }}
+              />
               <a href={`/c/${c.slug}`} className="client-row-actions">
                 Open &rarr;
               </a>

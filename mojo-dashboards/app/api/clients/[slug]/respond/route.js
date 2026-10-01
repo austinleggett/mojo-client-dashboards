@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { prisma, VIEW_FIELDS, isView } from "@/lib/db";
+import { mirrorResponseIntoDraft } from "@/lib/drafts";
 import { isStaffRequest, isClientAuthorized } from "@/lib/auth";
 import { getPath, setPath } from "@/lib/path";
 import { sendApprovalNotice } from "@/lib/email";
@@ -36,6 +37,14 @@ export async function PUT(request, { params }) {
     return NextResponse.json({ error: "That field can't be set this way." }, { status: 403 });
   }
 
+  // Which tab the item is on (the published version of it -- clients
+  // never see drafts). Defaults to weekly for older callers.
+  const view = body.view === undefined ? "weekly" : body.view;
+  if (!isView(view)) {
+    return NextResponse.json({ error: "Unknown view." }, { status: 400 });
+  }
+  const { live, draft } = VIEW_FIELDS[view];
+
   let value = body.value;
   if (path.endsWith(".status")) {
     if (!VALID_STATUS.has(value)) {
@@ -61,15 +70,20 @@ export async function PUT(request, { params }) {
   // client's content before writing, so a stale/guessed index can't
   // silently create garbage structure via setPath's auto-vivification.
   const parentPath = path.slice(0, path.lastIndexOf("."));
-  if (getPath(client.content, parentPath) == null) {
+  const liveDoc = client[live];
+  if (!liveDoc || getPath(liveDoc, parentPath) == null) {
     return NextResponse.json({ error: "That item no longer exists." }, { status: 404 });
   }
 
-  const nextContent = setPath(client.content, path, value);
+  const data = { [live]: setPath(liveDoc, path, value) };
+  // Staff have a draft of this tab open: carry the client's response
+  // over to the matching item there too, so publishing doesn't lose it.
+  if (client[draft]) data[draft] = mirrorResponseIntoDraft(liveDoc, client[draft], path, value);
   const updated = await prisma.client.update({
     where: { slug: params.slug },
-    data: { content: nextContent },
+    data,
   });
+  const updatedDoc = updated[live];
 
   // Let the Marketing Strategist know the moment an actual client (not
   // staff previewing/testing their own dashboard) responds to
@@ -77,7 +91,7 @@ export async function PUT(request, { params }) {
   // clicks, so this only fires for a genuine client-portal caller, and
   // only for an actual decision, never a reset back to "pending".
   if (!staff && path.endsWith(".status") && value !== "pending") {
-    const item = getPath(updated.content, parentPath) || {};
+    const item = getPath(updatedDoc, parentPath) || {};
     const itemLabel = item.title || item.name || item.store || "an item on the dashboard";
     const anchor = path.startsWith("review.")
       ? "review"
@@ -94,9 +108,9 @@ export async function PUT(request, { params }) {
       itemLabel,
       status: value,
       comment: item.clientComment || "",
-      dashboardUrl: `${request.nextUrl.origin}/c/${params.slug}#${anchor}`,
+      dashboardUrl: `${request.nextUrl.origin}/c/${params.slug}${view === "monthly" ? "?view=monthly" : ""}#${anchor}`,
     });
   }
 
-  return NextResponse.json({ content: updated.content });
+  return NextResponse.json({ content: updatedDoc });
 }
