@@ -41,6 +41,8 @@ export default function FormatToolbar({
   onClearBg,
   onUndo,
   canUndo,
+  onLink,
+  onButton,
 }) {
   // Same trick as before: preventing the mousedown's default action
   // stops the browser from shifting focus (and losing whatever text
@@ -119,6 +121,19 @@ export default function FormatToolbar({
         />
         <button type="button" title="Clear background" className="bg-clear-btn" onClick={onClearBg}>
           &times;
+        </button>
+      </div>
+
+      <span className="toolbar-sep" />
+      {/* Links: highlight text and click Link to make it clickable, or
+          click Button to drop in a call-to-action button. Bare web
+          addresses, emails and phone numbers are auto-linked anyway. */}
+      <div className="top-format-group">
+        <button type="button" title="Link: make the highlighted text a clickable link" className="link-tool-btn" onClick={onLink}>
+          🔗 Link
+        </button>
+        <button type="button" title="Button: insert a call-to-action button" className="link-tool-btn" onClick={onButton}>
+          ▭ Button
         </button>
       </div>
 

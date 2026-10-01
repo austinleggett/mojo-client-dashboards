@@ -18,6 +18,7 @@
 // Keep RICH_TEXT_PATTERNS in sync with wherever components/Dashboard.js
 // renders a field with the RichEditable component instead of Editable.
 import sanitizeHtml from "sanitize-html";
+import { safeUrl, linkAttrs, LINK_CLASS, CTA_CLASS } from "./links.js";
 
 export const RICH_TEXT_PATTERNS = [
   "meta.clientName",
@@ -88,10 +89,38 @@ const ALLOWED_STYLES = {
 export function sanitizeRichText(html) {
   if (typeof html !== "string") return html;
   return sanitizeHtml(html, {
-    allowedTags: ["b", "strong", "i", "em", "u", "span", "div", "br"],
-    allowedAttributes: { span: ["style"], div: ["style"] },
+    allowedTags: ["b", "strong", "i", "em", "u", "span", "div", "br", "a"],
+    allowedAttributes: { span: ["style"], div: ["style"], a: ["href", "class", "target", "rel"] },
     allowedStyles: { "*": ALLOWED_STYLES },
+    // Links: only http(s)/mailto/tel ever survive, only our two link
+    // styles (an inline text link or a call-to-action button), and an
+    // external link always opens in a new tab with rel=noopener -- set
+    // here on the server regardless of what the browser sent, so it
+    // can't be skipped by editing through the API directly. An <a>
+    // whose href isn't a safe link is unwrapped to plain text.
+    allowedSchemes: ["http", "https", "mailto", "tel"],
+    allowedSchemesAppliedToAttributes: ["href"],
+    allowProtocolRelative: false,
+    allowedClasses: { a: [LINK_CLASS, CTA_CLASS] },
+    transformTags: {
+      a: (tagName, attribs) => {
+        const href = safeUrl(attribs.href);
+        if (!href) return { tagName: "span", attribs: {} };
+        const cls = (attribs.class || "").split(/\s+/).includes(CTA_CLASS) ? CTA_CLASS : LINK_CLASS;
+        return { tagName: "a", attribs: { href, class: cls, ...linkAttrs(href) } };
+      },
+    },
   });
+}
+
+// A card's optional button (content.<...>.link = { label, url }) --
+// plain text label, href validated the same way as an inline link. An
+// unsafe or empty url clears the button rather than storing it.
+function sanitizeCardLink(link) {
+  if (!link || typeof link !== "object") return undefined;
+  const url = safeUrl(link.url);
+  if (!url) return undefined;
+  return { label: String(link.label ?? "").slice(0, 120), url };
 }
 
 // Walks the whole content tree and sanitizes only the string values at
@@ -105,6 +134,11 @@ export function sanitizeContent(node, prefix = "") {
   if (node && typeof node === "object") {
     const out = {};
     for (const k of Object.keys(node)) {
+      if (k === "link" && prefix) {
+        const link = sanitizeCardLink(node[k]);
+        if (link) out[k] = link;
+        continue;
+      }
       out[k] = sanitizeContent(node[k], prefix ? `${prefix}.${k}` : k);
     }
     return out;

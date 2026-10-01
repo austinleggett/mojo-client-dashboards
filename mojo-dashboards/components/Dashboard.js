@@ -7,6 +7,7 @@ import { SortableGroup, arrayMove } from "@/components/Sortable";
 import FormatToolbar from "@/components/FormatToolbar";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "@/lib/theme";
+import { safeUrl, linkAttrs, linkifyNode, makeLink, displayUrl, LINK_CLASS, CTA_CLASS } from "@/lib/links";
 
 // Two small contexts so RichEditable (defined once, used ~40+ times
 // across this file) can register itself with, and read its selection
@@ -80,10 +81,12 @@ function RichEditable({ as: Tag = "div", value, path, editing, onCommit, classNa
   const selected = selectedFields.includes(path);
 
   useEffect(() => {
-    if (ref.current && ref.current.innerHTML !== (value ?? "")) {
+    if (!ref.current) return;
+    if (serializeField(ref.current) !== (value ?? "")) {
       ref.current.innerHTML = value ?? "";
     }
-  }, [value]);
+    decorateField(ref.current, editing);
+  }, [value, editing]);
 
   // Hand this field's live DOM node to the shared registry so the
   // top-of-page format bar can act on it later -- including when it
@@ -135,14 +138,57 @@ function RichEditable({ as: Tag = "div", value, path, editing, onCommit, classNa
           editing
             ? (e) => {
                 setFocused(false);
-                const html = e.currentTarget.innerHTML;
+                // Auto-link anything that looks like a web address,
+                // email or phone number before saving the field.
+                linkifyNode(e.currentTarget);
+                const html = serializeField(e.currentTarget);
                 if (html !== (value ?? "")) onCommit(path, html);
+              }
+            : undefined
+        }
+        onClick={
+          editing && fieldActions
+            ? (e) => {
+                // While editing, clicking a link or button opens the
+                // Open / Edit / Remove menu instead of following it.
+                const a = e.target.closest && e.target.closest("a");
+                if (a && ref.current && ref.current.contains(a)) {
+                  e.preventDefault();
+                  fieldActions.openLinkMenu({ path, node: ref.current, anchor: a });
+                }
               }
             : undefined
         }
       />
     </div>
   );
+}
+
+
+// The HTML a rich field actually saves -- its live DOM minus the
+// editing-only attributes decorateField() adds (contenteditable="false"
+// on CTA buttons), so those never get stored.
+function serializeField(node) {
+  if (!node.querySelector("[contenteditable]")) return node.innerHTML;
+  const clone = node.cloneNode(true);
+  clone.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
+  return clone.innerHTML;
+}
+
+// Per-render touches on a rich field's DOM that aren't stored content:
+// in view mode, bare URLs / emails / phone numbers become clickable
+// (so older text with a pasted link works without anyone re-saving
+// it); in edit mode, a CTA button becomes one solid, non-typeable
+// block, so it can't be half-edited by accident -- its label and link
+// are changed through its Edit menu instead.
+function decorateField(node, editing) {
+  if (!node) return;
+  if (editing) {
+    node.querySelectorAll(`a.${CTA_CLASS}`).forEach((a) => a.setAttribute("contenteditable", "false"));
+  } else {
+    node.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
+    linkifyNode(node);
+  }
 }
 
 function RemoveBtn({ onClick, label }) {
@@ -291,6 +337,161 @@ function EventStatusWidget({ status, comment, canRespond, onStatusChange, onComm
   );
 }
 
+
+// A card's own optional call-to-action button (item.link = { label,
+// url }) -- on review items, questions, events, meetings and custom
+// section cards. A consistent "Review it here" button at the bottom of
+// a card, without anyone having to format one by hand in the text.
+function CardLink({ link, editing, onEdit, onRemove }) {
+  const href = link ? safeUrl(link.url) : null;
+  const label = (link && link.label) || "Open link";
+  if (!editing) {
+    if (!href) return null;
+    return (
+      <div className="card-cta-row">
+        <a className={`${CTA_CLASS} card-cta`} href={href} {...linkAttrs(href)}>
+          {label}
+        </a>
+      </div>
+    );
+  }
+  return (
+    <div className="card-cta-row card-cta-edit">
+      {href ? (
+        <>
+          <span className={`${CTA_CLASS} card-cta`} title={href}>
+            {label}
+          </span>
+          <button type="button" className="mini-btn" onClick={onEdit}>
+            Edit button
+          </button>
+          <button type="button" className="mini-btn danger" onClick={onRemove}>
+            Remove
+          </button>
+        </>
+      ) : (
+        <button type="button" className="add-btn" onClick={onEdit}>
+          + Add button link
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The small form for adding or editing a link or a button. `mode` is
+// "link" (inline text link), "button" (a CTA button inside a text
+// field) or "card" (a card's own button).
+function LinkDialog({ mode, initial, onSubmit, onCancel, onRemove }) {
+  const [label, setLabel] = useState(initial?.label || "");
+  const [url, setUrl] = useState(initial?.url || "");
+  const [error, setError] = useState("");
+  const urlRef = useRef(null);
+  useEffect(() => {
+    urlRef.current?.focus();
+  }, [initial]);
+  const isButton = mode === "button" || mode === "card";
+  const href = safeUrl(url);
+  function submit(e) {
+    e.preventDefault();
+    if (!href) {
+      setError("Enter a web address (like kenkilday.com/blog), an email address or a phone number.");
+      return;
+    }
+    if (isButton && !label.trim()) {
+      setError("Give the button some text, like \u201cReview the October content.\u201d");
+      return;
+    }
+    onSubmit({ label: label.trim(), url: href });
+  }
+  const title = initial?.editing
+    ? isButton ? "Edit button" : "Edit link"
+    : isButton ? "Add a button" : "Add a link";
+  return (
+    <div className="link-dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <form className="link-dialog" onSubmit={submit} onKeyDown={(e) => e.key === "Escape" && onCancel()}>
+        <h4>{title}</h4>
+        <label>
+          {isButton ? "Button text" : "Text to show"}
+          <input
+            type="text"
+            value={label}
+            maxLength={120}
+            placeholder={isButton ? "Review the October content" : "Leave blank to show the address"}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+        </label>
+        <label>
+          Link
+          <input
+            ref={urlRef}
+            type="text"
+            value={url}
+            placeholder="https://… , name@email.com or 480-555-0100"
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setError("");
+            }}
+          />
+        </label>
+        {isButton && (
+          <div className="link-dialog-preview">
+            <span className="link-dialog-preview-label">Preview</span>
+            <span className={CTA_CLASS}>{label.trim() || "Button text"}</span>
+          </div>
+        )}
+        {error && <p className="link-dialog-error">{error}</p>}
+        <div className="link-dialog-actions">
+          {onRemove && (
+            <button type="button" className="mini-btn danger" onClick={onRemove}>
+              Remove
+            </button>
+          )}
+          <span style={{ flex: 1 }} />
+          <button type="button" className="mini-btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="mini-btn primary">
+            {initial?.editing ? "Save" : isButton ? "Add button" : "Add link"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// The Open / Edit / Remove menu shown when a link or button inside a
+// text field is clicked while editing.
+function LinkMenu({ anchor, onOpen, onEdit, onRemove, onClose }) {
+  const menuRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  useEffect(() => {
+    const r = anchor.getBoundingClientRect();
+    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left, window.innerWidth - 260)) });
+    function onDown(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    }
+    function onScroll() {
+      onClose();
+    }
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [anchor, onClose]);
+  if (!pos) return null;
+  const href = anchor.getAttribute("href") || "";
+  return (
+    <div ref={menuRef} className="link-menu" style={{ top: pos.top, left: pos.left }} onMouseDown={(e) => e.preventDefault()}>
+      <span className="link-menu-url" title={href}>{displayUrl(href)}</span>
+      <button type="button" onClick={onOpen}>Open ↗</button>
+      <button type="button" onClick={onEdit}>Edit</button>
+      <button type="button" className="danger" onClick={onRemove}>Remove</button>
+    </div>
+  );
+}
+
 // Turns a hex accent color into the 3 shades the stylesheet expects
 // (base / a darker "strong" shade for text & headings / a very light
 // tint for subtle backgrounds), so picking one brand color is enough
@@ -333,6 +534,12 @@ function brandVars(accentColor, isDark) {
     "--brand": isDark ? mix(accentColor, [255, 255, 255], 0.55) : accentColor,
     "--brand-strong": isDark ? mix(accentColor, [255, 255, 255], 0.72) : mix(accentColor, [0, 0, 0], 0.28),
     "--brand-tint": isDark ? mix(accentColor, [0, 0, 0], 0.8) : mix(accentColor, [255, 255, 255], 0.88),
+    // Readable text on top of a solid accent-color button (white on a
+    // dark accent, near-black on a light one like yellow).
+    "--brand-solid-text": contrastText(accentColor),
+    // A thin light ring so a dark accent button still stands out
+    // against dark mode's dark surface.
+    "--cta-ring": isDark ? "0 0 0 1px rgba(255,255,255,.35)" : "0 0 0 0 transparent",
   };
 }
 
@@ -447,6 +654,10 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
   // flag tells RichEditable's onFocus to skip that reset while a bulk
   // operation is in progress.
   const suppressAutoSelectRef = useRef(false);
+  // Links & buttons: the add/edit form (linkDialog) and the Open / Edit
+  // / Remove menu for a link clicked while editing (linkMenu).
+  const [linkDialog, setLinkDialog] = useState(null);
+  const [linkMenu, setLinkMenu] = useState(null);
   const fieldActions = useMemo(
     () => ({
       registerNode,
@@ -454,6 +665,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
         if (!suppressAutoSelectRef.current) selectOnly(path);
       },
       toggleSelect,
+      openLinkMenu: (info) => setLinkMenu(info),
     }),
     [registerNode, selectOnly, toggleSelect]
   );
@@ -664,7 +876,153 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
     } finally {
       suppressAutoSelectRef.current = false;
     }
-    targets.forEach(({ path, node }) => commit(path, node.innerHTML));
+    targets.forEach(({ path, node }) => commit(path, serializeField(node)));
+  }
+
+  // ---------------------------------------------------------------
+  // Links & buttons from the format bar. Both work on exactly one text
+  // box: the highlighted text becomes the link (or is replaced by the
+  // button); with nothing highlighted, the link/button goes in at the
+  // cursor, or at the end of a box that was only shift-click selected.
+  // The selection is saved before the form opens (typing in the form
+  // moves focus away from the box) and restored when it's submitted.
+  // ---------------------------------------------------------------
+  function startInsert(mode) {
+    if (selectedFields.length !== 1) {
+      showToast(selectedFields.length ? "Select just one text box to add a link" : "Click into a text box first, then add a link");
+      return;
+    }
+    const path = selectedFields[0];
+    const node = fieldNodesRef.current.get(path);
+    if (!node) return;
+    const sel = window.getSelection();
+    let range = null;
+    if (sel && sel.rangeCount > 0 && node.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      range = sel.getRangeAt(0).cloneRange();
+    }
+    const selectedText = range ? range.toString().trim() : "";
+    setLinkDialog({ mode, path, node, range, initial: { label: selectedText, url: "" } });
+  }
+
+  function placeRange(node, saved) {
+    node.focus();
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    let range = saved;
+    if (!range || !node.contains(range.commonAncestorContainer)) {
+      range = document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(false);
+    }
+    sel.addRange(range);
+    return range;
+  }
+
+  function submitLinkDialog({ label, url }) {
+    const d = linkDialog;
+    setLinkDialog(null);
+    if (!d) return;
+    if (d.mode === "card") {
+      commit(`${d.cardPath}.link`, { label, url });
+      return;
+    }
+    const { node, path } = d;
+    if (d.anchor) {
+      // Editing an existing link/button in place.
+      d.anchor.setAttribute("href", url);
+      const attrs = linkAttrs(url);
+      ["target", "rel"].forEach((k) => (attrs[k] ? d.anchor.setAttribute(k, attrs[k]) : d.anchor.removeAttribute(k)));
+      if (label) d.anchor.textContent = label;
+      commit(path, serializeField(node));
+      return;
+    }
+    const range = placeRange(node, d.range);
+    let el;
+    if (d.mode === "link") {
+      el = makeLink(url, "", LINK_CLASS);
+      if (!range.collapsed && (!label || label === range.toString().trim())) {
+        // Keep the highlighted text (and any bold/color on it) as the link.
+        el.appendChild(range.extractContents());
+      } else {
+        if (!range.collapsed) range.deleteContents();
+        el.textContent = label || displayUrl(url);
+      }
+    } else {
+      if (!range.collapsed) range.deleteContents();
+      el = makeLink(url, label, CTA_CLASS);
+    }
+    range.insertNode(el);
+    // A space after the new link/button (unless one's already there),
+    // so typing on doesn't extend the link.
+    let after = el.nextSibling;
+    if (!(after && after.nodeType === 3 && /^\s/.test(after.nodeValue))) {
+      after = document.createTextNode("\u00a0");
+      el.after(after);
+    }
+    const sel = window.getSelection();
+    const caret = document.createRange();
+    caret.setStart(after, 1);
+    caret.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(caret);
+    decorateField(node, true);
+    commit(path, serializeField(node));
+  }
+
+  function editMenuLink() {
+    const m = linkMenu;
+    setLinkMenu(null);
+    if (!m) return;
+    const isButton = m.anchor.classList.contains(CTA_CLASS);
+    setLinkDialog({
+      mode: isButton ? "button" : "link",
+      path: m.path,
+      node: m.node,
+      anchor: m.anchor,
+      initial: { label: m.anchor.textContent, url: m.anchor.getAttribute("href") || "", editing: true },
+    });
+  }
+
+  function removeMenuLink() {
+    const m = linkMenu;
+    setLinkMenu(null);
+    if (!m) return;
+    if (m.anchor.classList.contains(CTA_CLASS)) {
+      m.anchor.remove();
+    } else {
+      m.anchor.replaceWith(...m.anchor.childNodes);
+    }
+    commit(m.path, serializeField(m.node));
+  }
+
+  function removeDialogLink() {
+    const d = linkDialog;
+    setLinkDialog(null);
+    if (!d) return;
+    if (d.mode === "card") {
+      commit(`${d.cardPath}.link`, undefined);
+      return;
+    }
+    if (d.anchor) {
+      if (d.anchor.classList.contains(CTA_CLASS)) d.anchor.remove();
+      else d.anchor.replaceWith(...d.anchor.childNodes);
+      commit(d.path, serializeField(d.node));
+    }
+  }
+
+  // A card's own button (item.link): opens the same form in "card" mode.
+  function cardLinkProps(itemPath, link) {
+    return {
+      link,
+      editing,
+      onEdit: () =>
+        setLinkDialog({
+          mode: "card",
+          cardPath: itemPath,
+          initial: { label: link?.label || "", url: link?.url || "", editing: !!link?.url },
+        }),
+      onRemove: () => commit(`${itemPath}.link`, undefined),
+    };
   }
 
   const applyBold = () => runOnTargets(() => document.execCommand("bold", false, null));
@@ -1048,6 +1406,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                         {editing && <RemoveBtn onClick={() => removeItem(`review.groups.${gi}.items`, ii)} />}
                       </div>
                       <RichEditable as="div" className="review-item-desc" value={item.desc} path={`review.groups.${gi}.items.${ii}.desc`} editing={editing} onCommit={commit} />
+                      <CardLink {...cardLinkProps(`review.groups.${gi}.items.${ii}`, item.link)} />
                       <ApprovalWidget
                         status={item.status}
                         comment={item.clientComment}
@@ -1099,6 +1458,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                   {(q.response || editing) && (
                     <RichEditable as="div" className="question-response" value={q.response} path={`questions.items.${i}.response`} editing={editing} onCommit={commit} />
                   )}
+                  <CardLink {...cardLinkProps(`questions.items.${i}`, q.link)} />
                   <ApprovalWidget
                     status={q.status}
                     comment={q.clientComment}
@@ -1221,6 +1581,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                   <div className="event-main">
                     <RichEditable as="span" className="event-title" value={ev.title} path={`events.items.${i}.title`} editing={editing} onCommit={commit} />
                     <RichEditable as="div" className="event-loc" value={ev.loc} path={`events.items.${i}.loc`} editing={editing} onCommit={commit} />
+                    <CardLink {...cardLinkProps(`events.items.${i}`, ev.link)} />
                     <EventStatusWidget
                       status={ev.status}
                       comment={ev.clientComment}
@@ -1256,6 +1617,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
                       {editing && <RemoveBtn onClick={() => removeItem("meetings.items", i)} />}
                     </div>
                   </div>
+                  <CardLink {...cardLinkProps(`meetings.items.${i}`, m.link)} />
                   <EventStatusWidget
                     status={m.status}
                     comment={m.clientComment}
@@ -1302,6 +1664,7 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
             <>
               {editing && <RemoveBtn onClick={() => removeItem(`customSections.${idx}.items`, ii)} />}
               <RichEditable as="p" value={item.text} path={`customSections.${idx}.items.${ii}.text`} editing={editing} onCommit={commit} />
+              <CardLink {...cardLinkProps(`customSections.${idx}.items.${ii}`, item.link)} />
             </>
           )}
         </SortableGroup>
@@ -1353,6 +1716,30 @@ export default function Dashboard({ client, isStaff, canRespond = isStaff }) {
           onClearBg={applyClearBg}
           onUndo={undo}
           canUndo={undoCount > 0}
+          onLink={() => startInsert("link")}
+          onButton={() => startInsert("button")}
+        />
+      )}
+      {editing && linkDialog && (
+        <LinkDialog
+          mode={linkDialog.mode}
+          initial={linkDialog.initial}
+          onSubmit={submitLinkDialog}
+          onCancel={() => setLinkDialog(null)}
+          onRemove={linkDialog.initial?.editing ? removeDialogLink : undefined}
+        />
+      )}
+      {editing && linkMenu && (
+        <LinkMenu
+          anchor={linkMenu.anchor}
+          onOpen={() => {
+            const href = safeUrl(linkMenu.anchor.getAttribute("href"));
+            if (href) window.open(href, "_blank", "noopener,noreferrer");
+            setLinkMenu(null);
+          }}
+          onEdit={editMenuLink}
+          onRemove={removeMenuLink}
+          onClose={() => setLinkMenu(null)}
         />
       )}
       {isStaff && (

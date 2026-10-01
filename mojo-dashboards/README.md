@@ -112,3 +112,29 @@ factory to `ITEM_TEMPLATES` if it has repeatable items, add it to
 (`Editable` for text, `RemoveBtn`/`AddBtn` for list items). No
 database migration needed — it's all inside the existing `content`
 JSON column.
+
+## Links & buttons
+
+Every text box on a dashboard supports clickable links:
+
+- **Auto-links.** Type or paste a web address (`kenkilday.com/blog`),
+  email address or phone number into any text box and it becomes
+  clickable automatically. Links open in a new tab and are underlined
+  in the client's brand color with a small arrow.
+- **Link (format bar).** Highlight some text, click **Link**, paste the
+  address. The highlighted text becomes the link, so long URLs never
+  have to show on the page.
+- **Button (format bar).** Inserts a solid call-to-action button
+  ("Review the October content ->") in the client's brand color at the
+  cursor.
+- **Card buttons.** Ready for Review items, questions, events, meetings
+  and custom-section cards each have an optional "+ Add button link" in
+  edit mode, which puts a consistent button at the bottom of the card.
+
+While editing, clicking a link or button opens an Open / Edit / Remove
+menu instead of following it.
+
+Safety: only http, https, mailto and tel links are allowed
+(`lib/links.js`), and the server re-checks every link on save
+(`lib/sanitize.js`), forcing external links to open in a new tab with
+rel="noopener noreferrer". Anything else is stripped to plain text.
