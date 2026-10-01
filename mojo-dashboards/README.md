@@ -209,3 +209,20 @@ changed; existing clients' content becomes their Weekly Update tab.
 - **Portal password**: no longer part of edit mode. The sidebar shows
   whether it's on; changing it happens in its own dialog (typed twice),
   and turning it off is a separate, confirmed step.
+
+## Images & screenshots
+
+- **In any text box:** click into it and use **🖼 Image** in the format
+  bar, or just paste a screenshot (Cmd/Ctrl+V) or drag an image in.
+  Click an image while editing to make it Small / Medium / Full width,
+  add alt text, or remove it.
+- **Card image areas:** Ready for Review items, questions, highlights,
+  store cards and custom-section cards each have **+ Add image** in
+  edit mode (or drop an image on it), with an optional caption.
+- On the page, clicking any image opens it full size.
+- Images are resized in the browser (max 1600px), uploaded to the
+  `ClientImage` table (`POST /api/clients/<slug>/images`), and served
+  from `/api/images/<id>` with long-lived caching. Content only stores
+  that URL; the sanitizer drops any other image source. They also show
+  in the weekly email. Image URLs are unguessable but not behind the
+  portal password.

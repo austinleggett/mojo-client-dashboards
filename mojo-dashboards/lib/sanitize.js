@@ -19,6 +19,7 @@
 // renders a field with the RichEditable component instead of Editable.
 import sanitizeHtml from "sanitize-html";
 import { safeUrl, linkAttrs, LINK_CLASS, CTA_CLASS } from "./links.js";
+import { safeImageSrc, IMG_CLASS, IMG_SIZES } from "./images.js";
 
 export const RICH_TEXT_PATTERNS = [
   "meta.clientName",
@@ -92,9 +93,20 @@ const ALLOWED_STYLES = {
 
 export function sanitizeRichText(html) {
   if (typeof html !== "string") return html;
+  // Written as <img ...> (not <img ... />) to match how browsers
+  // serialize it, so re-saving an unchanged field is a no-op.
+  return sanitizeHtmlRaw(html).replace(/<img([^>]*?)\s*\/>/g, "<img$1>");
+}
+
+function sanitizeHtmlRaw(html) {
   return sanitizeHtml(html, {
-    allowedTags: ["b", "strong", "i", "em", "u", "span", "div", "br", "a"],
-    allowedAttributes: { span: ["style"], div: ["style"], a: ["href", "class", "target", "rel", "style"] },
+    allowedTags: ["b", "strong", "i", "em", "u", "span", "div", "br", "a", "img"],
+    allowedAttributes: {
+      span: ["style"],
+      div: ["style"],
+      a: ["href", "class", "target", "rel", "style"],
+      img: ["src", "alt", "class"],
+    },
     allowedStyles: { "*": ALLOWED_STYLES },
     // Links: only http(s)/mailto/tel ever survive, only our two link
     // styles (an inline text link or a call-to-action button), and an
@@ -105,8 +117,19 @@ export function sanitizeRichText(html) {
     allowedSchemes: ["http", "https", "mailto", "tel"],
     allowedSchemesAppliedToAttributes: ["href"],
     allowProtocolRelative: false,
-    allowedClasses: { a: [LINK_CLASS, CTA_CLASS] },
+    allowedClasses: { a: [LINK_CLASS, CTA_CLASS], img: [IMG_CLASS, ...IMG_SIZES] },
     transformTags: {
+      // Images: only our own uploaded images (/api/images/<id>); any
+      // other source is dropped entirely.
+      img: (tagName, attribs) => {
+        const src = safeImageSrc(attribs.src);
+        if (!src) return { tagName: "span", attribs: {}, text: "" };
+        const size = (attribs.class || "").split(/\s+/).find((c) => IMG_SIZES.includes(c)) || "img-md";
+        return {
+          tagName: "img",
+          attribs: { src, alt: String(attribs.alt || "").slice(0, 200), class: `${IMG_CLASS} ${size}` },
+        };
+      },
       a: (tagName, attribs) => {
         const href = safeUrl(attribs.href);
         if (!href) return { tagName: "span", attribs: {} };
@@ -124,6 +147,14 @@ export function sanitizeRichText(html) {
 // A card's optional button (content.<...>.link = { label, url }) --
 // plain text label, href validated the same way as an inline link. An
 // unsafe or empty url clears the button rather than storing it.
+// A card's optional image (item.image = { src, caption }).
+function sanitizeCardImage(image) {
+  if (!image || typeof image !== "object") return undefined;
+  const src = safeImageSrc(image.src);
+  if (!src) return undefined;
+  return { src, caption: String(image.caption ?? "").slice(0, 300) };
+}
+
 function sanitizeCardLink(link) {
   if (!link || typeof link !== "object") return undefined;
   const url = safeUrl(link.url);
@@ -144,6 +175,11 @@ export function sanitizeContent(node, prefix = "") {
   if (node && typeof node === "object") {
     const out = {};
     for (const k of Object.keys(node)) {
+      if (k === "image" && prefix) {
+        const image = sanitizeCardImage(node[k]);
+        if (image) out[k] = image;
+        continue;
+      }
       if (k === "link" && prefix) {
         const link = sanitizeCardLink(node[k]);
         if (link) out[k] = link;

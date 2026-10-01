@@ -962,3 +962,39 @@ body.presenting { overflow: hidden; }
 }
 .portal-status b.on { color: var(--good); }
 .portal-status b.off { color: var(--ink-faint); }
+
+/* ---------- Images ----------
+   Inline images in text boxes (.rt-img + a size) and a card's own image
+   area (.card-figure). Click any image on the page to see it larger. */
+.rt-img { display: block; height: auto; max-width: 100%; border-radius: 10px; margin: 10px 0; border: 1px solid var(--border); cursor: zoom-in; }
+.rt-img.img-sm { width: 220px; }
+.rt-img.img-md { width: 420px; }
+.rt-img.img-full { width: 100%; }
+body.editing .rt-img { cursor: pointer; }
+body.editing .rt-img:hover { outline: 2px solid var(--edit); outline-offset: 2px; }
+.card-figure { margin: 10px 0 0; }
+.card-img-btn { display: block; width: 100%; padding: 0; border: none; background: none; cursor: zoom-in; }
+.card-img { display: block; width: 100%; height: auto; max-height: 340px; object-fit: cover; border-radius: 10px; border: 1px solid var(--border); }
+.card-figure figcaption { font-size: 12px; color: var(--ink-faint); margin-top: 5px; }
+.card-figure-edit { display: flex; flex-direction: column; gap: 6px; }
+.card-img-add { width: 100%; justify-content: center; }
+.card-img-add span { font-weight: 400; color: var(--ink-faint); margin-left: 4px; }
+.card-caption-input {
+  font: inherit; font-size: 12.5px; border: 1px solid var(--border); background: var(--surface-sunken); color: var(--ink);
+  border-radius: 8px; padding: 6px 9px;
+}
+.image-menu button.on { background: var(--brand-tint); color: var(--brand-strong); }
+.image-alt-input {
+  font: inherit; font-size: 12px; width: 110px; border: 1px solid var(--border); border-radius: 7px; padding: 5px 7px;
+  background: var(--surface-sunken); color: var(--ink);
+}
+.lightbox {
+  position: fixed; inset: 0; z-index: 3000; background: rgba(10,12,11,.86); display: flex; align-items: center; justify-content: center;
+  padding: 24px; cursor: zoom-out;
+}
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); background: #fff; }
+.lightbox-close {
+  position: fixed; top: 16px; right: 18px; width: 40px; height: 40px; border-radius: 999px; border: none;
+  background: rgba(255,255,255,.15); color: #fff; font-size: 24px; cursor: pointer;
+}
+@media (max-width: 640px) { .rt-img.img-md { width: 100%; } }

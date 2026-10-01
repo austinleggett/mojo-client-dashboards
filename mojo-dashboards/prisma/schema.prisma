@@ -48,6 +48,7 @@ model Client {
   draftContent        Json?
   draftMonthlyContent Json?
   versions    ClientVersion[]
+  images      ClientImage[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -65,4 +66,19 @@ model ClientVersion {
   createdAt DateTime @default(now())
 
   @@index([clientId, view, createdAt])
+}
+
+// Images and screenshots uploaded to a client's dashboard (inline in
+// text, or a card's own image). Content refers to them by URL,
+// /api/images/<id>, rather than embedding the image data.
+model ClientImage {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  mime      String
+  data      Bytes
+  bytes     Int
+  createdAt DateTime @default(now())
+
+  @@index([clientId])
 }

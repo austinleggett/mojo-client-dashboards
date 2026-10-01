@@ -8,6 +8,7 @@ import FormatToolbar from "@/components/FormatToolbar";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useTheme } from "@/lib/theme";
 import { safeUrl, linkAttrs, linkifyNode, makeLink, displayUrl, LINK_CLASS, CTA_CLASS } from "@/lib/links";
+import { uploadImage, safeImageSrc, IMG_CLASS, IMG_SIZES } from "@/lib/images";
 
 // Two small contexts so RichEditable (defined once, used ~40+ times
 // across this file) can register itself with, and read its selection
@@ -146,9 +147,41 @@ function RichEditable({ as: Tag = "div", value, path, editing, onCommit, classNa
               }
             : undefined
         }
+        onPaste={
+          editing && fieldActions
+            ? (e) => {
+                // Pasting a screenshot (or any image) uploads it and drops
+                // it in at the cursor.
+                const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
+                if (files.length) {
+                  e.preventDefault();
+                  fieldActions.insertImages({ path, node: ref.current, files });
+                }
+              }
+            : undefined
+        }
+        onDrop={
+          editing && fieldActions
+            ? (e) => {
+                const files = [...(e.dataTransfer?.files || [])].filter((f) => f.type.startsWith("image/"));
+                if (files.length) {
+                  e.preventDefault();
+                  let range = null;
+                  if (document.caretRangeFromPoint) range = document.caretRangeFromPoint(e.clientX, e.clientY);
+                  fieldActions.insertImages({ path, node: ref.current, files, range });
+                }
+              }
+            : undefined
+        }
         onClick={
           editing && fieldActions
             ? (e) => {
+                const im = e.target.closest && e.target.closest(`img.${IMG_CLASS}`);
+                if (im && ref.current && ref.current.contains(im)) {
+                  e.preventDefault();
+                  fieldActions.openImageMenu({ path, node: ref.current, img: im });
+                  return;
+                }
                 // While editing, clicking a link or button opens the
                 // Open / Edit / Remove menu instead of following it.
                 const a = e.target.closest && e.target.closest("a");
@@ -674,6 +707,8 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
   const date = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
   const blocks = []; // { title, items: [{ html, text, link? }] }
   const cardLink = (it) => (it.link && safeUrl(it.link.url) ? { label: it.link.label || "Open link", url: safeUrl(it.link.url) } : null);
+  const origin = String(dashboardUrl || "").replace(/\/c\/.*$/, "");
+  const cardImg = (it) => (it.image && safeImageSrc(it.image.src) ? `${origin}${safeImageSrc(it.image.src)}` : null);
   const join = (...parts) => parts.filter((p) => p && htmlToText(p)).join(" — ");
 
   for (const id of sectionOrder) {
@@ -688,6 +723,7 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
             html: `<b>${it.title}</b>${htmlToText(it.store) ? ` (${it.store})` : ""}${htmlToText(it._group) ? ` · ${it._group}` : ""}${htmlToText(it.desc) ? `<br>${it.desc}` : ""}`,
             text: `${htmlToText(it.title)}${htmlToText(it.store) ? ` (${htmlToText(it.store)})` : ""}${htmlToText(it._group) ? ` · ${htmlToText(it._group)}` : ""}${htmlToText(it.desc) ? `\n   ${htmlToText(it.desc)}` : ""}`,
             link: cardLink(it),
+            img: cardImg(it),
           })),
         });
       const qs = (content.questions?.items || []).filter(isOpen);
@@ -698,6 +734,7 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
             html: `<b>${q.title}</b>${htmlToText(q.store) ? ` (${q.store})` : ""}${htmlToText(q.excerpt) ? `<br><i>${q.excerpt}</i>` : ""}${htmlToText(q.response) ? `<br>${q.response}` : ""}`,
             text: `${htmlToText(q.title)}${htmlToText(q.store) ? ` (${htmlToText(q.store)})` : ""}${htmlToText(q.excerpt) ? `\n   "${htmlToText(q.excerpt)}"` : ""}${htmlToText(q.response) ? `\n   ${htmlToText(q.response)}` : ""}`,
             link: cardLink(q),
+            img: cardImg(q),
           })),
         });
     } else if (id === "working") {
@@ -737,11 +774,14 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
       if (cs && (cs.items || []).length)
         blocks.push({
           title: navLabelFor(id),
-          items: cs.items.map((it) => ({ html: it.text, text: htmlToText(it.text), link: cardLink(it) })),
+          items: cs.items.map((it) => ({ html: it.text, text: htmlToText(it.text), link: cardLink(it), img: cardImg(it) })),
         });
     }
   }
 
+  // Inline images in email need absolute URLs and a width cap.
+  const emailImgs = (html) =>
+    String(html || "").replace(/<img([^>]*?)src="(\/api\/images\/[^"]+)"([^>]*)>/g, (_m, a, src, b) => `<img${a}src="${origin}${src}"${b} style="max-width:100%;height:auto;border-radius:6px">`);
   const subject = `${client} weekly update · ${date}`;
   const sign = [meta.contactName, meta.contactTitle, meta.contactEmail, meta.contactPhone].map(htmlToText).filter(Boolean);
   const btn = (url, label) =>
@@ -759,7 +799,7 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
           b.items
             .map(
               (it) =>
-                `<li style="margin-bottom:6px">${it.html}${it.link ? `<br><a href="${esc(it.link.url)}">${esc(it.link.label)} &rarr;</a>` : ""}</li>`
+                `<li style="margin-bottom:6px">${emailImgs(it.html)}${it.img ? `<br><img src="${esc(it.img)}" alt="" style="max-width:100%;height:auto;border-radius:8px;margin-top:6px">` : ""}${it.link ? `<br><a href="${esc(it.link.url)}">${esc(it.link.label)} &rarr;</a>` : ""}</li>`
             )
             .join("") +
           `</ul>`
@@ -1069,6 +1109,141 @@ function PasswordDialog({ hasPassword, saving, onSave, onClose }) {
   );
 }
 
+
+// A card's own image area (item.image = { src, caption }): a screenshot
+// or photo at the top of the card's details, with an optional caption.
+function CardImage({ image, editing, onPick, onCaption, onRemove, onOpen }) {
+  const inputRef = useRef(null);
+  const src = image ? safeImageSrc(image.src) : null;
+  const picker = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/gif"
+      style={{ display: "none" }}
+      onChange={(e) => {
+        const f = e.target.files?.[0];
+        e.target.value = "";
+        if (f) onPick(f);
+      }}
+    />
+  );
+  if (!editing) {
+    if (!src) return null;
+    return (
+      <figure className="card-figure">
+        <button type="button" className="card-img-btn" onClick={() => onOpen(src)} aria-label="View larger">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="card-img" src={src} alt={image.caption || ""} loading="lazy" />
+        </button>
+        {image.caption && <figcaption>{image.caption}</figcaption>}
+      </figure>
+    );
+  }
+  return (
+    <div
+      className="card-figure card-figure-edit"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        const f = [...(e.dataTransfer?.files || [])].find((x) => x.type.startsWith("image/"));
+        if (f) {
+          e.preventDefault();
+          onPick(f);
+        }
+      }}
+    >
+      {picker}
+      {src ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img className="card-img" src={src} alt="" />
+          <input
+            type="text"
+            className="card-caption-input"
+            placeholder="Caption (optional)"
+            defaultValue={image.caption || ""}
+            onBlur={(e) => e.target.value !== (image.caption || "") && onCaption(e.target.value)}
+          />
+          <div className="card-cta-row">
+            <button type="button" className="mini-btn" onClick={() => inputRef.current?.click()}>
+              Replace image
+            </button>
+            <button type="button" className="mini-btn danger" onClick={onRemove}>
+              Remove image
+            </button>
+          </div>
+        </>
+      ) : (
+        <button type="button" className="add-btn card-img-add" onClick={() => inputRef.current?.click()}>
+          + Add image <span>or drop one here</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Size / alt text / remove, for an image clicked inside a text box
+// while editing.
+function ImageMenu({ img, onSize, onAlt, onRemove, onClose }) {
+  const menuRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  const [alt, setAlt] = useState(img.getAttribute("alt") || "");
+  useEffect(() => {
+    const r = img.getBoundingClientRect();
+    setPos({ top: Math.min(r.bottom + 6, window.innerHeight - 60), left: Math.max(8, Math.min(r.left, window.innerWidth - 360)) });
+    function onDown(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target) && e.target !== img) onClose();
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [img, onClose]);
+  if (!pos) return null;
+  const current = IMG_SIZES.find((c) => img.classList.contains(c)) || "img-md";
+  return (
+    <div ref={menuRef} className="link-menu image-menu" style={{ top: pos.top, left: pos.left }}>
+      {[
+        ["img-sm", "Small"],
+        ["img-md", "Medium"],
+        ["img-full", "Full width"],
+      ].map(([c, label]) => (
+        <button key={c} type="button" className={current === c ? "on" : ""} onClick={() => onSize(c)}>
+          {label}
+        </button>
+      ))}
+      <input
+        type="text"
+        className="image-alt-input"
+        placeholder="Alt text"
+        value={alt}
+        onChange={(e) => setAlt(e.target.value)}
+        onBlur={() => onAlt(alt)}
+        onKeyDown={(e) => e.key === "Enter" && onAlt(alt)}
+      />
+      <button type="button" className="danger" onClick={onRemove}>
+        Remove
+      </button>
+    </div>
+  );
+}
+
+// Full-size view of an image, opened by clicking it on the page.
+function Lightbox({ src, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="lightbox" onClick={onClose} role="dialog" aria-label="Image">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" />
+      <button type="button" className="lightbox-close" onClick={onClose} aria-label="Close">
+        &times;
+      </button>
+    </div>
+  );
+}
+
 // Turns a hex accent color into the 3 shades the stylesheet expects
 // (base / a darker "strong" shade for text & headings / a very light
 // tint for subtle backgrounds), so picking one brand color is enough
@@ -1275,6 +1450,15 @@ export default function Dashboard({
   // / Remove menu for a link clicked while editing (linkMenu).
   const [linkDialog, setLinkDialog] = useState(null);
   const [linkMenu, setLinkMenu] = useState(null);
+  // Images: the size / alt text / remove menu for an image clicked while
+  // editing, the full-size viewer for one clicked while viewing, and a
+  // ref to the (re-created every render) insert function so the stable
+  // fieldActions object above can always call the latest one.
+  const [imageMenu, setImageMenu] = useState(null);
+  const [lightbox, setLightbox] = useState(null);
+  const insertImagesRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const pendingImageInsert = useRef(null);
   const fieldActions = useMemo(
     () => ({
       registerNode,
@@ -1283,6 +1467,8 @@ export default function Dashboard({
       },
       toggleSelect,
       openLinkMenu: (info) => setLinkMenu(info),
+      openImageMenu: (info) => setImageMenu(info),
+      insertImages: (info) => insertImagesRef.current?.(info),
     }),
     [registerNode, selectOnly, toggleSelect]
   );
@@ -1533,6 +1719,97 @@ export default function Dashboard({
     }
     const selectedText = range ? range.toString().trim() : "";
     setLinkDialog({ mode, path, node, range, initial: { label: selectedText, url: "" } });
+  }
+
+  // Images from the format bar's Image button (file picker), or pasted /
+  // dropped straight into a text box. Each is resized in the browser,
+  // uploaded, and inserted where the cursor was.
+  function startImageInsert() {
+    if (selectedFields.length !== 1) {
+      showToast(selectedFields.length ? "Select just one text box to add an image" : "Click into a text box first, then add an image");
+      return;
+    }
+    const path = selectedFields[0];
+    const node = fieldNodesRef.current.get(path);
+    if (!node) return;
+    const sel = window.getSelection();
+    let range = null;
+    if (sel && sel.rangeCount > 0 && node.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+      range = sel.getRangeAt(0).cloneRange();
+    }
+    pendingImageInsert.current = { path, node, range };
+    imageInputRef.current?.click();
+  }
+
+  async function insertImages({ path, node, files, range }) {
+    if (!node || !files?.length) return;
+    let saved = range && node.contains(range.commonAncestorContainer) ? range : null;
+    for (const file of files) {
+      showToast("Uploading image…");
+      try {
+        const url = await uploadImage(client.slug, file);
+        const img = document.createElement("img");
+        img.setAttribute("src", url);
+        img.setAttribute("alt", "");
+        img.setAttribute("class", `${IMG_CLASS} img-md`);
+        const r = placeRange(node, saved);
+        if (!r.collapsed) r.deleteContents();
+        r.insertNode(img);
+        const after = document.createRange();
+        after.setStartAfter(img);
+        after.collapse(true);
+        saved = after;
+        commit(path, serializeField(node));
+        showToast("Image added -- click it to resize it or add alt text");
+      } catch (err) {
+        showToast(err.message || "Couldn't add that image");
+        break;
+      }
+    }
+  }
+  insertImagesRef.current = insertImages;
+
+  function setImageSize(size) {
+    const m = imageMenu;
+    if (!m) return;
+    IMG_SIZES.forEach((c) => m.img.classList.remove(c));
+    m.img.classList.add(size);
+    commit(m.path, serializeField(m.node));
+    setImageMenu({ ...m });
+  }
+  function setImageAlt(alt) {
+    const m = imageMenu;
+    if (!m) return;
+    m.img.setAttribute("alt", alt);
+    commit(m.path, serializeField(m.node));
+  }
+  function removeMenuImage() {
+    const m = imageMenu;
+    setImageMenu(null);
+    if (!m) return;
+    m.img.remove();
+    commit(m.path, serializeField(m.node));
+  }
+
+  // A card's own image (item.image = { src, caption }).
+  function cardImageProps(itemPath, image) {
+    return {
+      image,
+      editing,
+      onPick: async (file) => {
+        showToast("Uploading image…");
+        try {
+          const src = await uploadImage(client.slug, file);
+          commit(`${itemPath}.image`, { src, caption: image?.caption || "" });
+          showToast("Image added -- remember to save");
+        } catch (err) {
+          showToast(err.message || "Couldn't add that image");
+        }
+      },
+      onCaption: (caption) => image && commit(`${itemPath}.image`, { ...image, caption }),
+      onRemove: () => commit(`${itemPath}.image`, undefined),
+      onOpen: (src) => setLightbox(src),
+    };
   }
 
   function placeRange(node, saved) {
@@ -1967,6 +2244,7 @@ export default function Dashboard({
                 {editing && <RemoveBtn onClick={() => removeItem("momentum.items", i)} />}
               </div>
               <RichEditable as="p" value={m.text} path={`momentum.items.${i}.text`} editing={editing} onCommit={commit} />
+              <CardImage {...cardImageProps(`momentum.items.${i}`, m.image)} />
             </>
           )}
         </SortableGroup>
@@ -2013,6 +2291,7 @@ export default function Dashboard({
                 </div>
               </div>
               <RichEditable as="p" value={store.text} path={`stores.items.${i}.text`} editing={editing} onCommit={commit} />
+              <CardImage {...cardImageProps(`stores.items.${i}`, store.image)} />
             </>
           )}
         </SortableGroup>
@@ -2059,6 +2338,7 @@ export default function Dashboard({
                         {editing && <RemoveBtn onClick={() => removeItem(`review.groups.${gi}.items`, ii)} />}
                       </div>
                       <RichEditable as="div" className="review-item-desc" value={item.desc} path={`review.groups.${gi}.items.${ii}.desc`} editing={editing} onCommit={commit} />
+                      <CardImage {...cardImageProps(`review.groups.${gi}.items.${ii}`, item.image)} />
                       <CardLink {...cardLinkProps(`review.groups.${gi}.items.${ii}`, item.link)} />
                       <ApprovalWidget
                         status={item.status}
@@ -2111,6 +2391,7 @@ export default function Dashboard({
                   {(q.response || editing) && (
                     <RichEditable as="div" className="question-response" value={q.response} path={`questions.items.${i}.response`} editing={editing} onCommit={commit} />
                   )}
+                  <CardImage {...cardImageProps(`questions.items.${i}`, q.image)} />
                   <CardLink {...cardLinkProps(`questions.items.${i}`, q.link)} />
                   <ApprovalWidget
                     status={q.status}
@@ -2317,6 +2598,7 @@ export default function Dashboard({
             <>
               {editing && <RemoveBtn onClick={() => removeItem(`customSections.${idx}.items`, ii)} />}
               <RichEditable as="p" value={item.text} path={`customSections.${idx}.items.${ii}.text`} editing={editing} onCommit={commit} />
+              <CardImage {...cardImageProps(`customSections.${idx}.items.${ii}`, item.image)} />
               <CardLink {...cardLinkProps(`customSections.${idx}.items.${ii}`, item.link)} />
             </>
           )}
@@ -2372,8 +2654,35 @@ export default function Dashboard({
           brandColors={palette}
           onLink={() => startInsert("link")}
           onButton={() => startInsert("button")}
+          onImage={startImageInsert}
         />
       )}
+      {editing && (
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const files = [...(e.target.files || [])];
+            e.target.value = "";
+            const p = pendingImageInsert.current;
+            pendingImageInsert.current = null;
+            if (p && files.length) insertImages({ ...p, files });
+          }}
+        />
+      )}
+      {editing && imageMenu && (
+        <ImageMenu
+          img={imageMenu.img}
+          onSize={setImageSize}
+          onAlt={setImageAlt}
+          onRemove={removeMenuImage}
+          onClose={() => setImageMenu(null)}
+        />
+      )}
+      {lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
       {editing && linkDialog && (
         <LinkDialog
           mode={linkDialog.mode}
@@ -2499,7 +2808,14 @@ export default function Dashboard({
         </div>
       </aside>
 
-      <div className="content">
+      <div
+        className="content"
+        onClick={(e) => {
+          if (editing) return;
+          const im = e.target.closest && e.target.closest(`img.${IMG_CLASS}`);
+          if (im) setLightbox(im.getAttribute("src"));
+        }}
+      >
         <header className="masthead">
           <div className="masthead-inner">
             {/* Client-first: their logo and name lead, biggest thing on

@@ -43,6 +43,7 @@ export default function FormatToolbar({
   canUndo,
   onLink,
   onButton,
+  onImage,
   brandColors = [],
 }) {
   // Same trick as before: preventing the mousedown's default action
@@ -165,6 +166,9 @@ export default function FormatToolbar({
         </button>
         <button type="button" title="Button: insert a call-to-action button" className="link-tool-btn" onClick={onButton}>
           ▭ Button
+        </button>
+        <button type="button" title="Image: add an image or screenshot (you can also paste or drop one into a text box)" className="link-tool-btn" onClick={onImage}>
+          🖼 Image
         </button>
       </div>
 
