@@ -65,6 +65,10 @@ export const RICH_TEXT_PATTERNS = [
   "headings.*.meetings",
   "customSections.*.note",
   "customSections.*.items.*.text",
+  "customSections.*.items.*.heading",
+  "momentum.items.*.heading",
+  "stores.items.*.heading",
+  "questions.items.*.heading",
 ];
 
 export function isRichTextPath(path) {
@@ -152,7 +156,9 @@ function sanitizeCardImage(image) {
   if (!image || typeof image !== "object") return undefined;
   const src = safeImageSrc(image.src);
   if (!src) return undefined;
-  return { src, caption: String(image.caption ?? "").slice(0, 300) };
+  const out = { src, caption: String(image.caption ?? "").slice(0, 300) };
+  if (image.display === "flip") out.display = "flip";
+  return out;
 }
 
 function sanitizeCardLink(link) {

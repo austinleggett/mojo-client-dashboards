@@ -560,6 +560,22 @@ function LinkMenu({ anchor, onOpen, onEdit, onRemove, onClose }) {
 }
 
 
+
+// Long card lists: on the page, more than COLLAPSE_OVER cards (and no
+// section breaks) shows the first COLLAPSED_SHOW plus "Show all"; in
+// Present mode, slides hold up to SLIDE_CARDS cards (SLIDE_QUESTIONS
+// for the taller question cards).
+const COLLAPSE_OVER = 8;
+const COLLAPSED_SHOW = 6;
+const SLIDE_CARDS = 6;
+const SLIDE_QUESTIONS = 4;
+
+// A card's title for its data slide: its bold lead-in, name or title.
+function cardTitle(item) {
+  const raw = item.title || item.name || item.month || (/<b>(.*?)<\/b>/i.exec(item.text || "") || [])[1] || "";
+  return String(raw).replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").trim();
+}
+
 // Plain text from a stored rich-text field.
 function htmlToText(html) {
   if (typeof document === "undefined") return String(html || "").replace(/<[^>]*>/g, "");
@@ -574,7 +590,7 @@ const isOpen = (item) => (item.status || "pending") !== "approved";
 // open on the Weekly Update, so those items live in one place only.
 function WeeklyOpenItems({ weekly, onOpen }) {
   const review = (weekly.review?.groups || []).flatMap((g) => g.items || []).filter(isOpen).length;
-  const questions = (weekly.questions?.items || []).filter(isOpen).length;
+  const questions = (weekly.questions?.items || []).filter((q) => q.type !== "break").filter(isOpen).length;
   if (!review && !questions) return null;
   const parts = [];
   if (review) parts.push(`${review} item${review === 1 ? "" : "s"} ready for your review`);
@@ -595,12 +611,11 @@ function WeeklyOpenItems({ weekly, onOpen }) {
 // presenting on Zoom or in person: a title slide, one slide per
 // section (in the tab's own order), and a closing slide. Arrow keys,
 // space, or the on-screen arrows move between slides; Esc exits.
-function PresentMode({ content, sectionOrder, renderers, navLabelFor, onExit }) {
+function PresentMode({ content, pages, renderers, onExit }) {
   const meta = content.meta || {};
-  const slides = useMemo(
-    () => [{ kind: "title" }, ...sectionOrder.filter((id) => renderers[id]).map((id) => ({ kind: "section", id })), { kind: "end" }],
-    [sectionOrder, renderers]
-  );
+  // Built once when presenting starts, so the deck doesn't reshuffle
+  // mid-meeting.
+  const [slides] = useState(() => [{ kind: "title" }, ...pages, { kind: "end" }]);
   const [i, setI] = useState(0);
   const go = useCallback((d) => setI((n) => Math.max(0, Math.min(slides.length - 1, n + d))), [slides.length]);
   useEffect(() => {
@@ -632,6 +647,13 @@ function PresentMode({ content, sectionOrder, renderers, navLabelFor, onExit }) 
     <div className="present-overlay">
       <div className="present-top">
         <span className="present-client">{htmlToText(meta.clientName)}</span>
+        {(slide.kind === "section" || slide.kind === "data") && (
+          <span className="present-where">
+            {htmlToText(slide.label)}
+            {slide.kind === "section" && slide.parts > 1 ? ` · ${slide.part} of ${slide.parts}` : ""}
+            {slide.kind === "data" ? " · the data" : ""}
+          </span>
+        )}
         <span className="present-count">
           {i + 1} / {slides.length}
         </span>
@@ -657,7 +679,15 @@ function PresentMode({ content, sectionOrder, renderers, navLabelFor, onExit }) 
             )}
           </div>
         )}
-        {slide.kind === "section" && <div className="present-section">{renderers[slide.id]()}</div>}
+        {slide.kind === "section" && <div className="present-section">{renderers[slide.id](slide.slice)}</div>}
+        {slide.kind === "data" && (
+          <div className="present-data">
+            {slide.title && <h2>{slide.title}</h2>}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={slide.src} alt={slide.caption || slide.title || ""} />
+            {slide.caption && <p>{slide.caption}</p>}
+          </div>
+        )}
         {slide.kind === "end" && (
           <div className="present-title-slide">
             <h1>Thank you!</h1>
@@ -683,7 +713,7 @@ function PresentMode({ content, sectionOrder, renderers, navLabelFor, onExit }) 
               type="button"
               className={`present-dot${n === i ? " on" : ""}`}
               onClick={() => setI(n)}
-              title={sl.kind === "section" ? navLabelFor(sl.id === "reviewQuestions" ? "review" : sl.id) : sl.kind === "title" ? "Title" : "Wrap-up"}
+              title={sl.kind === "section" || sl.kind === "data" ? htmlToText(sl.label) : sl.kind === "title" ? "Title" : "Wrap-up"}
             />
           ))}
         </div>
@@ -726,7 +756,7 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
             img: cardImg(it),
           })),
         });
-      const qs = (content.questions?.items || []).filter(isOpen);
+      const qs = (content.questions?.items || []).filter((q) => q.type !== "break").filter(isOpen);
       if (qs.length)
         blocks.push({
           title: navLabelFor("questions"),
@@ -763,7 +793,7 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
       }));
       if (evs.length || ms.length) blocks.push({ title: navLabelFor("upcoming"), items: [...evs, ...ms] });
     } else if (id === "momentum") {
-      const items = content.momentum?.items || [];
+      const items = (content.momentum?.items || []).filter((m) => m.type !== "break");
       if (items.length)
         blocks.push({
           title: navLabelFor("momentum"),
@@ -771,10 +801,11 @@ function buildWeeklyEmail({ content, sectionOrder, navLabelFor, dashboardUrl, ac
         });
     } else {
       const cs = (content.customSections || []).find((c) => c.id === id);
-      if (cs && (cs.items || []).length)
+      const csItems = cs ? (cs.items || []).filter((it) => it.type !== "break") : [];
+      if (csItems.length)
         blocks.push({
           title: navLabelFor(id),
-          items: cs.items.map((it) => ({ html: it.text, text: htmlToText(it.text), link: cardLink(it), img: cardImg(it) })),
+          items: csItems.map((it) => ({ html: it.text, text: htmlToText(it.text), link: cardLink(it), img: cardImg(it) })),
         });
     }
   }
@@ -1112,9 +1143,18 @@ function PasswordDialog({ hasPassword, saving, onSave, onClose }) {
 
 // A card's own image area (item.image = { src, caption }): a screenshot
 // or photo at the top of the card's details, with an optional caption.
-function CardImage({ image, editing, onPick, onCaption, onRemove, onOpen }) {
+function CardImage({ image, editing, onPick, onCaption, onRemove, onOpen, onDisplay }) {
   const inputRef = useRef(null);
+  const wrapRef = useRef(null);
+  const [flipped, setFlipped] = useState(false);
   const src = image ? safeImageSrc(image.src) : null;
+  const flip = image && image.display === "flip";
+  // The flipped side covers the whole card, so give a short card enough
+  // height to show a screenshot.
+  useEffect(() => {
+    const card = wrapRef.current && wrapRef.current.parentElement;
+    if (card) card.classList.toggle("is-flipped", flipped);
+  }, [flipped]);
   const picker = (
     <input
       ref={inputRef}
@@ -1130,6 +1170,29 @@ function CardImage({ image, editing, onPick, onCaption, onRemove, onOpen }) {
   );
   if (!editing) {
     if (!src) return null;
+    if (flip) {
+      return (
+        <div ref={wrapRef} className="card-flip-wrap">
+          <button type="button" className="see-data-btn" onClick={() => setFlipped(true)}>
+            See the data &#8635;
+          </button>
+          {flipped && (
+            <div className="card-flip-back">
+              <button type="button" className="card-img-btn" onClick={() => onOpen(src)} aria-label="View larger">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt={image.caption || ""} />
+              </button>
+              <div className="card-flip-foot">
+                <span>{image.caption}</span>
+                <button type="button" className="mini-btn" onClick={() => setFlipped(false)}>
+                  &larr; Back
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
     return (
       <figure className="card-figure">
         <button type="button" className="card-img-btn" onClick={() => onOpen(src)} aria-label="View larger">
@@ -1164,6 +1227,14 @@ function CardImage({ image, editing, onPick, onCaption, onRemove, onOpen }) {
             defaultValue={image.caption || ""}
             onBlur={(e) => e.target.value !== (image.caption || "") && onCaption(e.target.value)}
           />
+          <div className="image-display-toggle" role="group" aria-label="How this image shows">
+            <button type="button" className={!flip ? "on" : ""} onClick={() => onDisplay("inline")}>
+              Show on the card
+            </button>
+            <button type="button" className={flip ? "on" : ""} onClick={() => onDisplay("flip")}>
+              Flip to see (&ldquo;See the data&rdquo;)
+            </button>
+          </div>
           <div className="card-cta-row">
             <button type="button" className="mini-btn" onClick={() => inputRef.current?.click()}>
               Replace image
@@ -1800,13 +1871,14 @@ export default function Dashboard({
         showToast("Uploading image…");
         try {
           const src = await uploadImage(client.slug, file);
-          commit(`${itemPath}.image`, { src, caption: image?.caption || "" });
+          commit(`${itemPath}.image`, { ...(image || {}), src, caption: image?.caption || "" });
           showToast("Image added -- remember to save");
         } catch (err) {
           showToast(err.message || "Couldn't add that image");
         }
       },
       onCaption: (caption) => image && commit(`${itemPath}.image`, { ...image, caption }),
+      onDisplay: (display) => image && commit(`${itemPath}.image`, { ...image, display }),
       onRemove: () => commit(`${itemPath}.image`, undefined),
       onOpen: (src) => setLightbox(src),
     };
@@ -2164,6 +2236,132 @@ export default function Dashboard({
   // bottom of this component.
   // ---------------------------------------------------------------
 
+
+  // ---------------------------------------------------------------
+  // Card lists (highlights, store updates, questions, custom-section
+  // cards) with section breaks and automatic splitting.
+  //
+  // A section break is just an item of { type: "break", heading } in
+  // the list: on the page it's a full-width subheading that groups the
+  // cards after it; in Present mode it starts a new slide. Long lists
+  // with no breaks are trimmed on the page to the first few cards plus
+  // a "Show all" button, and split across slides automatically.
+  // ---------------------------------------------------------------
+  const [expandedLists, setExpandedLists] = useState(() => new Set());
+  const isBreak = (item) => item && item.type === "break";
+
+  function visibleEntries(listPath, items, slice) {
+    const entries = (items || []).map((item, i) => ({ item, i }));
+    if (slice) return { entries: entries.filter((e) => slice.indices.has(e.i)), hidden: 0 };
+    if (editing || expandedLists.has(listPath)) return { entries, hidden: 0 };
+    if (entries.some((e) => isBreak(e.item)) || entries.length <= COLLAPSE_OVER) return { entries, hidden: 0 };
+    return { entries: entries.slice(0, COLLAPSED_SHOW), hidden: entries.length - COLLAPSED_SHOW };
+  }
+
+  function renderBreak(listPath, i, item) {
+    return (
+      <div className="card-break-inner">
+        <RichEditable as="h3" className="card-break-heading" value={item.heading} path={`${listPath}.${i}.heading`} editing={editing} onCommit={commit} />
+        {editing && <span className="card-break-hint edit-ctl">Section break · starts a new slide in Present mode</span>}
+        {editing && <RemoveBtn onClick={() => removeItem(listPath, i)} label="Remove section break" />}
+      </div>
+    );
+  }
+
+  function cardList({ listPath, items, slice, listClassName, cardClass, addLabel, addTemplate, renderCard }) {
+    const { entries, hidden } = visibleEntries(listPath, items, slice);
+    return (
+      <>
+        {slice?.subheading && (
+          <div className="card-break-inner slide-subheading">
+            <RichEditable as="h3" className="card-break-heading" value={slice.subheading} path="__slide" editing={false} onCommit={() => {}} />
+          </div>
+        )}
+        <SortableGroup
+          idPrefix={listPath}
+          items={entries}
+          onReorder={(from, to) => reorder(listPath, from, to)}
+          disabled={!editing}
+          listClassName={listClassName}
+          rowClassName={(e) => (isBreak(e.item) ? "card-break" : cardClass)}
+        >
+          {(e) => (isBreak(e.item) ? renderBreak(listPath, e.i, e.item) : renderCard(e.item, e.i))}
+        </SortableGroup>
+        {hidden > 0 && (
+          <button
+            type="button"
+            className="show-all-btn"
+            onClick={() => setExpandedLists((prev) => new Set(prev).add(listPath))}
+          >
+            Show all {entries.length + hidden} &darr;
+          </button>
+        )}
+        {editing && (
+          <div className="add-item-row card-list-adds">
+            <AddBtn label={addLabel} onClick={() => addItem(listPath, addTemplate)} />
+            <AddBtn label="Section break" onClick={() => addItem(listPath, ITEM_TEMPLATES.breakItem)} />
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // Present mode: which slides each section becomes. Card lists split
+  // at their section breaks, and any run of cards longer than a slide
+  // comfortably holds is split evenly across slides. A card whose
+  // image is set to "flip" also gets its own full-screen data slide
+  // right after the slide it's on.
+  function presentPages() {
+    const pages = [];
+    const listFor = (id) => {
+      if (id === "momentum") return ["momentum.items", content.momentum?.items, SLIDE_CARDS];
+      if (id === "stores") return ["stores.items", content.stores?.items, SLIDE_CARDS];
+      if (id === "reviewQuestions") return ["questions.items", content.questions?.items, SLIDE_QUESTIONS];
+      const ci = (content.customSections || []).findIndex((c) => c.id === id);
+      if (ci >= 0) return [`customSections.${ci}.items`, content.customSections[ci].items, SLIDE_CARDS];
+      return null;
+    };
+    for (const id of sectionOrder) {
+      if (!sectionRenderers[id]) continue;
+      const label = navLabelFor(id === "reviewQuestions" ? "review" : id);
+      const spec = listFor(id);
+      if (!spec || !(spec[1] || []).length) {
+        pages.push({ kind: "section", id, label });
+        continue;
+      }
+      const [, items, per] = spec;
+      // Split into runs at section breaks...
+      const runs = [{ heading: null, entries: [] }];
+      items.forEach((item, i) => {
+        if (isBreak(item)) runs.push({ heading: item.heading, entries: [] });
+        else runs[runs.length - 1].entries.push({ item, i });
+      });
+      const nonEmpty = runs.filter((r) => r.entries.length);
+      // ...then each run into evenly sized slides.
+      const chunks = [];
+      nonEmpty.forEach((r) => {
+        const n = Math.max(1, Math.ceil(r.entries.length / per));
+        const size = Math.ceil(r.entries.length / n) || 1;
+        for (let k = 0; k < n; k++) chunks.push({ heading: r.heading, entries: r.entries.slice(k * size, (k + 1) * size) });
+      });
+      chunks.forEach((c, k) => {
+        pages.push({
+          kind: "section",
+          id,
+          label,
+          part: k + 1,
+          parts: chunks.length,
+          slice: { indices: new Set(c.entries.map((e) => e.i)), subheading: c.heading, showReview: k === 0 },
+        });
+        c.entries.forEach(({ item }) => {
+          const src = item.image && item.image.display === "flip" ? safeImageSrc(item.image.src) : null;
+          if (src) pages.push({ kind: "data", src, caption: item.image.caption || "", title: cardTitle(item), label });
+        });
+      });
+    }
+    return pages;
+  }
+
   function renderRecap() {
     return (
       <section id="recap" className="section">
@@ -2220,7 +2418,7 @@ export default function Dashboard({
     );
   }
 
-  function renderMomentum() {
+  function renderMomentum(slice) {
     return (
       <section id="momentum" className="section">
         <div className="section-head">
@@ -2229,15 +2427,15 @@ export default function Dashboard({
             <RichEditable as="h2" value={getPath(content, "headings.momentum.heading") ?? "What's been moving"} path="headings.momentum.heading" editing={editing} onCommit={commit} />
           </div>
         </div>
-        <SortableGroup
-          idPrefix="momentum.items"
-          items={content.momentum.items}
-          onReorder={(from, to) => reorder("momentum.items", from, to)}
-          disabled={!editing}
-          listClassName="momentum-grid"
-          rowClassName="momentum-card"
-        >
-          {(m, i) => (
+        {cardList({
+          listPath: "momentum.items",
+          items: content.momentum.items,
+          slice,
+          listClassName: "momentum-grid",
+          cardClass: "momentum-card",
+          addLabel: "Add highlight",
+          addTemplate: ITEM_TEMPLATES.momentumItem,
+          renderCard: (m, i) => (
             <>
               <div className="card-top-row">
                 <RichEditable as="span" className="momentum-month" value={m.month} path={`momentum.items.${i}.month`} editing={editing} onCommit={commit} />
@@ -2246,14 +2444,13 @@ export default function Dashboard({
               <RichEditable as="p" value={m.text} path={`momentum.items.${i}.text`} editing={editing} onCommit={commit} />
               <CardImage {...cardImageProps(`momentum.items.${i}`, m.image)} />
             </>
-          )}
-        </SortableGroup>
-        {editing && <div style={{ marginTop: 10 }}><AddBtn label="Add highlight" onClick={() => addItem("momentum.items", ITEM_TEMPLATES.momentumItem)} /></div>}
+          ),
+        })}
       </section>
     );
   }
 
-  function renderStores() {
+  function renderStores(slice) {
     return (
       <section id="stores" className="section">
         <div className="section-head">
@@ -2262,15 +2459,15 @@ export default function Dashboard({
             <RichEditable as="h2" value={getPath(content, "headings.stores.heading") ?? "Location-by-location notes"} path="headings.stores.heading" editing={editing} onCommit={commit} />
           </div>
         </div>
-        <SortableGroup
-          idPrefix="stores.items"
-          items={content.stores.items}
-          onReorder={(from, to) => reorder("stores.items", from, to)}
-          disabled={!editing}
-          listClassName="store-grid"
-          rowClassName="store-card"
-        >
-          {(store, i) => (
+        {cardList({
+          listPath: "stores.items",
+          items: content.stores.items,
+          slice,
+          listClassName: "store-grid",
+          cardClass: "store-card",
+          addLabel: "Add store",
+          addTemplate: ITEM_TEMPLATES.storeItem,
+          renderCard: (store, i) => (
             <>
               <div className="store-card-top">
                 <RichEditable as="span" className="store-name" value={store.name} path={`stores.items.${i}.name`} editing={editing} onCommit={commit} />
@@ -2293,16 +2490,16 @@ export default function Dashboard({
               <RichEditable as="p" value={store.text} path={`stores.items.${i}.text`} editing={editing} onCommit={commit} />
               <CardImage {...cardImageProps(`stores.items.${i}`, store.image)} />
             </>
-          )}
-        </SortableGroup>
-        {editing && <div style={{ marginTop: 10 }}><AddBtn label="Add store" onClick={() => addItem("stores.items", ITEM_TEMPLATES.storeItem)} /></div>}
+          ),
+        })}
       </section>
     );
   }
 
-  function renderReviewQuestions() {
+  function renderReviewQuestions(slice) {
     return (
-      <div className="two-col" style={{ marginTop: 52 }}>
+      <div className={`two-col${slice && !slice.showReview ? " one-col" : ""}`} style={{ marginTop: 52 }}>
+        {(!slice || slice.showReview) && (
         <section id="review" className="section" style={{ marginTop: 0 }}>
           <div className="panel">
             <div className="panel-head">
@@ -2365,20 +2562,22 @@ export default function Dashboard({
           </div>
         </section>
 
+        )}
         <section id="questions" className="section" style={{ marginTop: 0 }}>
           <div className="panel">
             <div className="panel-head">
               <RichEditable as="h3" value={getPath(content, "headings.questions.heading") ?? "Questions & Requests"} path="headings.questions.heading" editing={editing} onCommit={commit} />
-              <span className="count-badge">{content.questions.items.length}</span>
+              <span className="count-badge">{content.questions.items.filter((q) => q.type !== "break").length}</span>
             </div>
-            <SortableGroup
-              idPrefix="questions.items"
-              items={content.questions.items}
-              onReorder={(from, to) => reorder("questions.items", from, to)}
-              disabled={!editing}
-              rowClassName="question-item"
-            >
-              {(q, i) => (
+            {cardList({
+              listPath: "questions.items",
+              items: content.questions.items,
+              slice,
+              listClassName: undefined,
+              cardClass: "question-item",
+              addLabel: "Add question",
+              addTemplate: ITEM_TEMPLATES.questionItem,
+              renderCard: (q, i) => (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <RichEditable as="span" className="question-store" value={q.store} path={`questions.items.${i}.store`} editing={editing} onCommit={commit} />
@@ -2401,13 +2600,8 @@ export default function Dashboard({
                     onCommentCommit={(c) => respond(`questions.items.${i}.clientComment`, c)}
                   />
                 </>
-              )}
-            </SortableGroup>
-            {editing && (
-              <div className="add-item-row">
-                <AddBtn label="Add question" onClick={() => addItem("questions.items", ITEM_TEMPLATES.questionItem)} />
-              </div>
-            )}
+              ),
+            })}
           </div>
         </section>
       </div>
@@ -2574,7 +2768,7 @@ export default function Dashboard({
   // sidebar nav list (like every built-in section's label), not here,
   // so there's exactly one place to rename it rather than two fields
   // that could drift out of sync.
-  function renderCustom(section, idx) {
+  function renderCustom(section, idx, slice) {
     return (
       <section id={section.id} className="section">
         <div className="section-head">
@@ -2586,28 +2780,23 @@ export default function Dashboard({
           )}
         </div>
 
-        <SortableGroup
-          idPrefix={`customSections.${idx}.items`}
-          items={section.items}
-          onReorder={(from, to) => reorder(`customSections.${idx}.items`, from, to)}
-          disabled={!editing}
-          listClassName="momentum-grid"
-          rowClassName="momentum-card"
-        >
-          {(item, ii) => (
+        {cardList({
+          listPath: `customSections.${idx}.items`,
+          items: section.items,
+          slice,
+          listClassName: "momentum-grid",
+          cardClass: "momentum-card",
+          addLabel: "Add card",
+          addTemplate: ITEM_TEMPLATES.customSectionItem,
+          renderCard: (item, ii) => (
             <>
               {editing && <RemoveBtn onClick={() => removeItem(`customSections.${idx}.items`, ii)} />}
               <RichEditable as="p" value={item.text} path={`customSections.${idx}.items.${ii}.text`} editing={editing} onCommit={commit} />
               <CardImage {...cardImageProps(`customSections.${idx}.items.${ii}`, item.image)} />
               <CardLink {...cardLinkProps(`customSections.${idx}.items.${ii}`, item.link)} />
             </>
-          )}
-        </SortableGroup>
-        {editing && (
-          <div style={{ marginTop: 10 }}>
-            <AddBtn label="Add card" onClick={() => addItem(`customSections.${idx}.items`, ITEM_TEMPLATES.customSectionItem)} />
-          </div>
-        )}
+          ),
+        })}
       </section>
     );
   }
@@ -2622,7 +2811,7 @@ export default function Dashboard({
     approved: renderApproved,
     upcoming: renderUpcoming,
     ...Object.fromEntries(
-      customSections.map((section, idx) => [section.id, () => renderCustom(section, idx)])
+      customSections.map((section, idx) => [section.id, (slice) => renderCustom(section, idx, slice)])
     ),
   };
 
@@ -3122,9 +3311,8 @@ export default function Dashboard({
       {presenting && (
         <PresentMode
           content={content}
-          sectionOrder={sectionOrder}
+          pages={presentPages()}
           renderers={sectionRenderers}
-          navLabelFor={navLabelFor}
           onExit={() => setPresenting(false)}
         />
       )}

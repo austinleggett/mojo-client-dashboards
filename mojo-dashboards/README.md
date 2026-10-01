@@ -226,3 +226,19 @@ changed; existing clients' content becomes their Weekly Update tab.
   that URL; the sanitizer drops any other image source. They also show
   in the weekly email. Image URLs are unguessable but not behind the
   portal password.
+
+## Section breaks, long lists, and "See the data"
+
+- **Section breaks:** in edit mode, card lists (Highlights, Store
+  Updates, Questions, and custom sections like the goal scorecards)
+  have a **+ Section break** button. A break is a subheading that groups
+  the cards after it on the page, and starts a new slide in Present
+  mode. Drag it like any card; click its text to rename it.
+- **Automatic splitting:** on the page, a list of more than 8 cards
+  (with no breaks) shows the first 6 and a "Show all" button. In Present
+  mode, long lists are split evenly across slides (up to 6 cards, or 4
+  questions, per slide), shown as "2 of 3" in the top bar.
+- **"See the data":** a card's image can be set to **Flip to see**.
+  The card then shows a "See the data" button that flips it over to the
+  screenshot, and Present mode adds a full-screen data slide right
+  after that card's slide. Cards without an image are unchanged.

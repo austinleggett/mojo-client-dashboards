@@ -122,6 +122,9 @@ export const ITEM_TEMPLATES = {
   eventItem: () => ({ mon: "JAN", day: "01", title: "New event", loc: "Location", status: "pending", clientComment: "" }),
   meetingItem: () => ({ name: "New meeting", freq: "Frequency", next: "Date", status: "pending", clientComment: "" }),
   statItem: () => ({ label: "New stat", value: "0", sub: "context", good: false }),
+  // A section break inside a card list: a subheading on the page, and
+  // the start of a new slide in Present mode.
+  breakItem: () => ({ type: "break", heading: "New subsection" }),
   // A brand-new, freeform section: a headline, an optional note, and
   // an orderable list of short rich-text cards -- the same shape as
   // Momentum, since that's the simplest "heading + a few cards" layout
