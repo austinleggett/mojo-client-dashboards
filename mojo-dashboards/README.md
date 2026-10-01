@@ -189,3 +189,23 @@ The public `GET /api/clients/<slug>` never includes drafts.
 Database: the first deploy adds four nullable columns and one table via
 `prisma db push` (part of the build script). Nothing existing is
 changed; existing clients' content becomes their Weekly Update tab.
+
+## Brand colors, link previews, portal password
+
+- **Brand colors** (edit mode, sidebar): each client has a palette of
+  3-6 colors (`meta.brandColors`). Pick which one drives the **header &
+  accents** (`accentColor`) and which one the **buttons** use
+  (`meta.buttonColor`), so call-to-action buttons can stand out in a
+  different brand color. The palette also shows up in the format bar
+  (text color and background) and in the button dialog, where any one
+  button can use a different brand color.
+- **Link previews**: `app/c/[slug]/opengraph-image.js` (and
+  `twitter-image.js`) render a 1200x630 preview image -- the client's
+  brand gradient and mountain graphic, their logo, name, and "Client
+  Dashboard · Mountain Mojo Group". Previews use `SITE_URL` if set,
+  otherwise https://mountainmojostudios.com, for absolute image URLs.
+  Slack caches previews, so a link already shared may keep its old
+  (blank) preview for a while.
+- **Portal password**: no longer part of edit mode. The sidebar shows
+  whether it's on; changing it happens in its own dialog (typed twice),
+  and turning it off is a separate, confirmed step.

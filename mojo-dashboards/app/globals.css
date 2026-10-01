@@ -727,14 +727,14 @@ body.editing .mobile-nav-toggle { top: 60px; }
 .rt-link:hover { text-decoration-thickness: 2.5px; }
 .cta-btn {
   display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
-  background: var(--brand-solid); color: var(--brand-solid-text, #fff) !important;
+  background: var(--cta-bg, var(--brand-solid)); color: var(--cta-text, #fff);
   font-weight: 700; font-size: 14px; line-height: 1.25; font-style: normal;
   padding: 11px 18px; margin: 8px 0 2px; border-radius: 10px; text-decoration: none !important;
-  box-shadow: var(--cta-ring), 0 2px 0 var(--brand-solid-strong), 0 6px 16px rgba(0,0,0,.14);
-  transition: background .12s, transform .12s; vertical-align: middle; cursor: pointer;
+  box-shadow: var(--cta-ring), 0 2px 0 rgba(0,0,0,.22), 0 6px 16px rgba(0,0,0,.14);
+  transition: filter .12s, transform .12s; vertical-align: middle; cursor: pointer;
 }
 .cta-btn::after { content: "\2192"; font-size: 1.1em; transition: transform .12s; }
-a.cta-btn:hover { background: var(--brand-solid-strong); }
+a.cta-btn:hover { filter: brightness(.9); }
 a.cta-btn:hover::after { transform: translateX(3px); }
 a.cta-btn:active { transform: translateY(1px); }
 .rt-link:focus-visible, a.cta-btn:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
@@ -746,7 +746,7 @@ a.cta-btn:active { transform: translateY(1px); }
 /* On the colored masthead, links inherit the header's light text and a
    button flips to a light fill so it still stands out. */
 .masthead .rt-link { color: inherit; }
-.masthead .cta-btn { background: #fdfdf9; color: var(--brand-solid-strong) !important; }
+.masthead .cta-btn { background: #fdfdf9; color: var(--brand-solid-strong); }
 body.editing .cta-btn[contenteditable="false"] { outline: 1px dashed rgba(255,255,255,.6); outline-offset: -4px; }
 
 /* Card button controls in edit mode */
@@ -918,3 +918,47 @@ body.presenting { overflow: hidden; }
 .draft-edit-link { font-size: 12px; font-weight: 700; color: var(--brand-strong); }
 .draft-ask { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; width: 100%; justify-content: flex-end; }
 .draft-error { font-size: 12px; color: var(--bad); text-align: right; }
+
+/* ---------- Brand palette (edit-mode sidebar) ---------- */
+.brand-palette { margin-bottom: 12px; display: flex; flex-direction: column; gap: 7px; }
+.brand-palette-label { font-size: 12px; font-weight: 700; color: var(--ink-soft); }
+.palette-swatches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.palette-item { position: relative; display: inline-flex; }
+.palette-item input[type="color"] {
+  width: 30px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer;
+}
+.palette-remove {
+  position: absolute; top: -6px; right: -6px; width: 15px; height: 15px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--bad); font-size: 10px; line-height: 1; padding: 0; cursor: pointer;
+}
+.palette-add {
+  width: 26px; height: 26px; border-radius: 6px; border: 1px dashed var(--border); background: none; color: var(--ink-soft);
+  font-size: 15px; cursor: pointer;
+}
+.palette-role { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11.5px; color: var(--ink-soft); }
+.palette-pick { display: flex; gap: 4px; flex-wrap: wrap; }
+.palette-chip {
+  min-width: 26px; height: 26px; border-radius: 7px; border: 2px solid transparent; cursor: pointer; padding: 0 6px;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.15);
+}
+.palette-chip.sm { min-width: 20px; width: 20px; height: 20px; padding: 0; border-radius: 999px; }
+.palette-chip.on { border-color: var(--ink); box-shadow: 0 0 0 2px var(--surface) inset; }
+.palette-chip span { font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.link-dialog-colors { display: flex; flex-direction: column; gap: 5px; }
+
+/* Format bar: brand swatches, and never wrap onto a second line (the
+   page is offset for exactly one line of toolbar) -- scroll instead. */
+.top-format-bar { flex-wrap: nowrap; overflow-x: auto; }
+.toolbar-mini-label { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-faint); margin: 0 3px; }
+.top-format-bar button.bg-swatch-btn {
+  width: 19px; height: 19px; border-radius: 4px; background: var(--swatch); border: 1px solid rgba(0,0,0,.15); margin: 0 1px; padding: 0;
+  box-shadow: inset 0 0 0 3px rgba(255,255,255,.55);
+}
+
+/* Portal password status (staff sidebar) */
+.portal-status {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 10px;
+  font-size: 11.5px; color: var(--ink-soft);
+}
+.portal-status b.on { color: var(--good); }
+.portal-status b.off { color: var(--ink-faint); }

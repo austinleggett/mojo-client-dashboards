@@ -344,12 +344,13 @@ function EventStatusWidget({ status, comment, canRespond, onStatusChange, onComm
 // a card, without anyone having to format one by hand in the text.
 function CardLink({ link, editing, onEdit, onRemove }) {
   const href = link ? safeUrl(link.url) : null;
+  const style = link && link.color ? ctaStyle(link.color) : undefined;
   const label = (link && link.label) || "Open link";
   if (!editing) {
     if (!href) return null;
     return (
       <div className="card-cta-row">
-        <a className={`${CTA_CLASS} card-cta`} href={href} {...linkAttrs(href)}>
+        <a className={`${CTA_CLASS} card-cta`} href={href} style={style} {...linkAttrs(href)}>
           {label}
         </a>
       </div>
@@ -359,7 +360,7 @@ function CardLink({ link, editing, onEdit, onRemove }) {
     <div className="card-cta-row card-cta-edit">
       {href ? (
         <>
-          <span className={`${CTA_CLASS} card-cta`} title={href}>
+          <span className={`${CTA_CLASS} card-cta`} title={href} style={style}>
             {label}
           </span>
           <button type="button" className="mini-btn" onClick={onEdit}>
@@ -381,8 +382,11 @@ function CardLink({ link, editing, onEdit, onRemove }) {
 // The small form for adding or editing a link or a button. `mode` is
 // "link" (inline text link), "button" (a CTA button inside a text
 // field) or "card" (a card's own button).
-function LinkDialog({ mode, initial, onSubmit, onCancel, onRemove }) {
+function LinkDialog({ mode, initial, onSubmit, onCancel, onRemove, palette = [], defaultColor }) {
   const [label, setLabel] = useState(initial?.label || "");
+  // "" = the dashboard's button color (meta.buttonColor); otherwise a
+  // specific brand color just for this button.
+  const [color, setColor] = useState(initial?.color || "");
   const [url, setUrl] = useState(initial?.url || "");
   const [error, setError] = useState("");
   const urlRef = useRef(null);
@@ -401,7 +405,7 @@ function LinkDialog({ mode, initial, onSubmit, onCancel, onRemove }) {
       setError("Give the button some text, like \u201cReview the October content.\u201d");
       return;
     }
-    onSubmit({ label: label.trim(), url: href });
+    onSubmit({ label: label.trim(), url: href, color: isButton ? color : "" });
   }
   const title = initial?.editing
     ? isButton ? "Edit button" : "Edit link"
@@ -434,9 +438,39 @@ function LinkDialog({ mode, initial, onSubmit, onCancel, onRemove }) {
           />
         </label>
         {isButton && (
+          <div className="link-dialog-colors">
+            <span className="link-dialog-preview-label">Button color</span>
+            <div className="palette-pick">
+              <button
+                type="button"
+                className={`palette-chip${!color ? " on" : ""}`}
+                style={{ background: defaultColor }}
+                title="Dashboard button color (set under Brand colors)"
+                onClick={() => setColor("")}
+              >
+                <span>Default</span>
+              </button>
+              {palette
+                .filter((hex) => hex.toLowerCase() !== String(defaultColor).toLowerCase())
+                .map((hex) => (
+                  <button
+                    key={hex}
+                    type="button"
+                    className={`palette-chip${color === hex ? " on" : ""}`}
+                    style={{ background: hex }}
+                    title={hex}
+                    onClick={() => setColor(hex)}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
+        {isButton && (
           <div className="link-dialog-preview">
             <span className="link-dialog-preview-label">Preview</span>
-            <span className={CTA_CLASS}>{label.trim() || "Button text"}</span>
+            <span className={CTA_CLASS} style={color ? ctaStyle(color) : undefined}>
+              {label.trim() || "Button text"}
+            </span>
           </div>
         )}
         {error && <p className="link-dialog-error">{error}</p>}
@@ -871,6 +905,170 @@ function HistoryModal({ slug, view, onClose, onRestore }) {
   );
 }
 
+
+// A button in a specific brand color (instead of the dashboard's
+// default button color): stored as inline background + text color,
+// both of which lib/sanitize.js allows (hex only).
+function ctaStyle(hex) {
+  return { backgroundColor: hex, color: contrastText(hex) };
+}
+function applyCtaColor(el, hex) {
+  if (hex && /^#[0-9a-f]{6}$/i.test(hex)) {
+    // Written as an attribute string (not el.style) so it's stored as
+    // hex -- the browser would otherwise re-serialize it as rgb().
+    el.setAttribute("style", `background-color:${hex};color:${contrastText(hex)}`);
+  } else {
+    el.style.removeProperty("background-color");
+    el.style.removeProperty("color");
+    if (!el.getAttribute("style")) el.removeAttribute("style");
+  }
+}
+function rgbToHex(rgb) {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(rgb || "");
+  if (!m) return /^#[0-9a-f]{6}$/i.test(rgb || "") ? rgb : "";
+  return "#" + [m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+}
+
+// Edit-mode sidebar: the client's brand palette (3+ colors) and which
+// color is used for what -- the header & accents, and the buttons.
+function BrandPalette({ palette, accentColor, buttonColor, onPaletteChange, onAccentChange, onButtonChange }) {
+  const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+  const setAt = (i, hex) => {
+    const next = palette.slice();
+    const prev = next[i];
+    next[i] = hex;
+    onPaletteChange(next, prev, hex);
+  };
+  return (
+    <div className="brand-palette">
+      <div className="brand-palette-label">Brand colors</div>
+      <div className="palette-swatches">
+        {palette.map((hex, i) => (
+          <span className="palette-item" key={i}>
+            <input type="color" value={/^#[0-9a-f]{6}$/i.test(hex) ? hex : "#000000"} onChange={(e) => setAt(i, e.target.value)} title={hex} />
+            {palette.length > 3 && !same(hex, accentColor) && !same(hex, buttonColor) && (
+              <button type="button" className="palette-remove" title="Remove color" onClick={() => onPaletteChange(palette.filter((_, j) => j !== i))}>
+                &times;
+              </button>
+            )}
+          </span>
+        ))}
+        {palette.length < 6 && (
+          <button type="button" className="palette-add" title="Add a brand color" onClick={() => onPaletteChange([...palette, "#888888"])}>
+            +
+          </button>
+        )}
+      </div>
+      {[
+        ["Header & accents", accentColor, onAccentChange],
+        ["Buttons", buttonColor, onButtonChange],
+      ].map(([label, current, onPick]) => (
+        <div className="palette-role" key={label}>
+          <span>{label}</span>
+          <div className="palette-pick">
+            {palette.map((hex, i) => (
+              <button
+                key={i}
+                type="button"
+                className={`palette-chip sm${same(hex, current) ? " on" : ""}`}
+                style={{ background: hex }}
+                title={hex}
+                onClick={() => onPick(hex)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Setting, changing or turning off the client portal password -- its
+// own dialog, never part of "Save changes", with the new password typed
+// twice and turning it off as a separate, confirmed step.
+function PasswordDialog({ hasPassword, saving, onSave, onClose }) {
+  const [step, setStep] = useState(hasPassword ? "menu" : "set");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [error, setError] = useState("");
+  function submit(e) {
+    e.preventDefault();
+    if (pw.trim().length < 6) return setError("Use at least 6 characters.");
+    if (pw !== pw2) return setError("The two passwords don't match.");
+    onSave(pw.trim());
+  }
+  return (
+    <div className="link-dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="link-dialog" onKeyDown={(e) => e.key === "Escape" && onClose()}>
+        <h4>Client portal password</h4>
+        {step === "menu" && (
+          <>
+            <p className="email-hint">
+              A password is <b>on</b>: the client has to enter it to see their dashboard. It can&apos;t be shown here.
+              Changing it means the client will need the new one.
+            </p>
+            <div className="link-dialog-actions">
+              <button type="button" className="mini-btn danger" onClick={() => setStep("off")}>
+                Turn off password
+              </button>
+              <span style={{ flex: 1 }} />
+              <button type="button" className="mini-btn" onClick={onClose}>
+                Close
+              </button>
+              <button type="button" className="mini-btn primary" onClick={() => setStep("set")}>
+                Change password
+              </button>
+            </div>
+          </>
+        )}
+        {step === "set" && (
+          <form onSubmit={submit} style={{ display: "contents" }}>
+            <p className="email-hint">
+              {hasPassword
+                ? "Enter the new password twice. The old one stops working right away, so let the client know."
+                : "The client will need this password to see their dashboard. Enter it twice."}
+            </p>
+            <label>
+              New password
+              <input type="text" autoComplete="off" value={pw} onChange={(e) => { setPw(e.target.value); setError(""); }} autoFocus />
+            </label>
+            <label>
+              Type it again
+              <input type="text" autoComplete="off" value={pw2} onChange={(e) => { setPw2(e.target.value); setError(""); }} />
+            </label>
+            {error && <p className="link-dialog-error">{error}</p>}
+            <div className="link-dialog-actions">
+              <span style={{ flex: 1 }} />
+              <button type="button" className="mini-btn" onClick={onClose}>
+                Cancel
+              </button>
+              <button type="submit" className="mini-btn primary" disabled={saving}>
+                {saving ? "Saving…" : hasPassword ? "Change password" : "Turn on password"}
+              </button>
+            </div>
+          </form>
+        )}
+        {step === "off" && (
+          <>
+            <p className="email-hint">
+              Turn off the password? Anyone with the link will be able to see this dashboard without one.
+            </p>
+            <div className="link-dialog-actions">
+              <span style={{ flex: 1 }} />
+              <button type="button" className="mini-btn" onClick={() => setStep("menu")}>
+                Cancel
+              </button>
+              <button type="button" className="mini-btn danger-solid" disabled={saving} onClick={() => onSave("")}>
+                {saving ? "Saving…" : "Yes, turn it off"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Turns a hex accent color into the 3 shades the stylesheet expects
 // (base / a darker "strong" shade for text & headings / a very light
 // tint for subtle backgrounds), so picking one brand color is enough
@@ -904,10 +1102,15 @@ function mix(hex, target, amount) {
 // a light surface) but meant dark mode got the *exact same* dark,
 // low-contrast text color sitting on its own now-dark surface, which
 // is most of what made dark mode "hard to read" in the first place.
-function brandVars(accentColor, isDark) {
+function brandVars(accentColor, isDark, buttonColor) {
   const rgb = hexToRgb(accentColor);
   if (!rgb) return {};
+  const btn = hexToRgb(buttonColor) ? buttonColor : accentColor;
   return {
+    // Call-to-action buttons: their own brand color (meta.buttonColor).
+    "--cta-bg": btn,
+    "--cta-bg-strong": mix(btn, [0, 0, 0], 0.28),
+    "--cta-text": contrastText(btn),
     "--brand-solid": accentColor,
     "--brand-solid-strong": mix(accentColor, [0, 0, 0], 0.28),
     "--brand": isDark ? mix(accentColor, [255, 255, 255], 0.55) : accentColor,
@@ -1107,6 +1310,16 @@ export default function Dashboard({
   }
 
   const [accentColor, setAccentColor] = useState(client.accentColor || "#1f4d3a");
+  // The client's brand palette (meta.brandColors), and which of its
+  // colors is used for call-to-action buttons (meta.buttonColor) --
+  // so a client's buttons can stand out in a different brand color
+  // from the header. Older clients without a palette start with their
+  // accent color plus two starter slots to fill in.
+  const palette =
+    Array.isArray(content.meta.brandColors) && content.meta.brandColors.length
+      ? content.meta.brandColors
+      : [accentColor, "#2563eb", "#d97706"];
+  const buttonColor = /^#[0-9a-f]{6}$/i.test(content.meta.buttonColor || "") ? content.meta.buttonColor : accentColor;
   const { theme, isDark, setTheme } = useTheme();
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1336,12 +1549,12 @@ export default function Dashboard({
     return range;
   }
 
-  function submitLinkDialog({ label, url }) {
+  function submitLinkDialog({ label, url, color }) {
     const d = linkDialog;
     setLinkDialog(null);
     if (!d) return;
     if (d.mode === "card") {
-      commit(`${d.cardPath}.link`, { label, url });
+      commit(`${d.cardPath}.link`, color ? { label, url, color } : { label, url });
       return;
     }
     const { node, path } = d;
@@ -1351,6 +1564,7 @@ export default function Dashboard({
       const attrs = linkAttrs(url);
       ["target", "rel"].forEach((k) => (attrs[k] ? d.anchor.setAttribute(k, attrs[k]) : d.anchor.removeAttribute(k)));
       if (label) d.anchor.textContent = label;
+      if (d.mode === "button") applyCtaColor(d.anchor, color);
       commit(path, serializeField(node));
       return;
     }
@@ -1368,6 +1582,7 @@ export default function Dashboard({
     } else {
       if (!range.collapsed) range.deleteContents();
       el = makeLink(url, label, CTA_CLASS);
+      applyCtaColor(el, color);
     }
     range.insertNode(el);
     // A space after the new link/button (unless one's already there),
@@ -1397,7 +1612,12 @@ export default function Dashboard({
       path: m.path,
       node: m.node,
       anchor: m.anchor,
-      initial: { label: m.anchor.textContent, url: m.anchor.getAttribute("href") || "", editing: true },
+      initial: {
+        label: m.anchor.textContent,
+        url: m.anchor.getAttribute("href") || "",
+        color: isButton ? rgbToHex(m.anchor.style.backgroundColor) : "",
+        editing: true,
+      },
     });
   }
 
@@ -1437,7 +1657,7 @@ export default function Dashboard({
         setLinkDialog({
           mode: "card",
           cardPath: itemPath,
-          initial: { label: link?.label || "", url: link?.url || "", editing: !!link?.url },
+          initial: { label: link?.label || "", url: link?.url || "", color: link?.color || "", editing: !!link?.url },
         }),
       onRemove: () => commit(`${itemPath}.link`, undefined),
     };
@@ -1583,7 +1803,8 @@ export default function Dashboard({
   // (per lib/db.js's toSafeClient) the current value is never sent to
   // the browser, so this field is always write-only: typing something
   // and saving *changes* the password, it never displays it.
-  const [clientPasswordDraft, setClientPasswordDraft] = useState("");
+  const [hasPassword, setHasPassword] = useState(!!client.hasClientPassword);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   async function savePortalPassword(nextPassword) {
     setSavingPassword(true);
@@ -1597,8 +1818,9 @@ export default function Dashboard({
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Couldn't save that.");
       }
-      setClientPasswordDraft("");
-      showToast(nextPassword ? "Portal password set" : "Portal password removed");
+      setHasPassword(!!nextPassword);
+      setPasswordOpen(false);
+      showToast(nextPassword ? "Portal password set" : "Portal password turned off");
     } catch (err) {
       showToast(err.message || "Couldn't save that.");
     } finally {
@@ -2131,7 +2353,7 @@ export default function Dashboard({
   return (
     <FieldActionsContext.Provider value={fieldActions}>
     <FieldSelectionContext.Provider value={selectedFields}>
-    <div className="shell" style={brandVars(accentColor, isDark)}>
+    <div className="shell" style={brandVars(accentColor, isDark, buttonColor)}>
       {editing && (
         <FormatToolbar
           selectionCount={selectedFields.length}
@@ -2147,6 +2369,7 @@ export default function Dashboard({
           onClearBg={applyClearBg}
           onUndo={undo}
           canUndo={undoCount > 0}
+          brandColors={palette}
           onLink={() => startInsert("link")}
           onButton={() => startInsert("button")}
         />
@@ -2155,6 +2378,8 @@ export default function Dashboard({
         <LinkDialog
           mode={linkDialog.mode}
           initial={linkDialog.initial}
+          palette={palette}
+          defaultColor={buttonColor}
           onSubmit={submitLinkDialog}
           onCancel={() => setLinkDialog(null)}
           onRemove={linkDialog.initial?.editing ? removeDialogLink : undefined}
@@ -2228,40 +2453,20 @@ export default function Dashboard({
             <>
               {editing ? (
                 <>
-                  <div className="brand-color-row">
-                    <label htmlFor="accentColor">Brand color</label>
-                    <input
-                      id="accentColor"
-                      type="color"
-                      value={/^#[0-9a-f]{6}$/i.test(accentColor) ? accentColor : "#1f4d3a"}
-                      onChange={(e) => setAccentColor(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="portal-password-row">
-                    <label htmlFor="clientPassword">Client portal password</label>
-                    <p className="portal-password-hint">
-                      Set this to require a password before the client can view their dashboard. This never shows
-                      the current password back -- saving a new one here just replaces it. Leave the box blank and
-                      click Save to turn the password off again.
-                    </p>
-                    <input
-                      id="clientPassword"
-                      type="text"
-                      className="field-input-inline"
-                      placeholder="New portal password…"
-                      value={clientPasswordDraft}
-                      onChange={(e) => setClientPasswordDraft(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="side-btn ghost"
-                      disabled={savingPassword}
-                      onClick={() => savePortalPassword(clientPasswordDraft)}
-                    >
-                      {savingPassword ? "Saving…" : "Save password"}
-                    </button>
-                  </div>
+                  <BrandPalette
+                    palette={palette}
+                    accentColor={accentColor}
+                    buttonColor={buttonColor}
+                    onPaletteChange={(next, changedFrom, changedTo) => {
+                      commit("meta.brandColors", next);
+                      // Editing the color that's in use for the header or
+                      // buttons updates that role too.
+                      if (changedFrom && changedFrom.toLowerCase() === accentColor.toLowerCase()) setAccentColor(changedTo);
+                      if (changedFrom && changedFrom.toLowerCase() === buttonColor.toLowerCase()) commit("meta.buttonColor", changedTo);
+                    }}
+                    onAccentChange={setAccentColor}
+                    onButtonChange={(hex) => commit("meta.buttonColor", hex)}
+                  />
 
                   <button type="button" className="side-btn primary" onClick={handleSave} disabled={saving}>
                     {saving ? "Saving…" : "Save changes"}
@@ -2275,6 +2480,17 @@ export default function Dashboard({
                   {mode === "draft" ? "Edit draft" : "Edit this page"}
                 </button>
               ) : null}
+              {/* Deliberately separate from editing and "Save changes":
+                  the portal password only changes through its own
+                  dialog, with the new password typed twice. */}
+              <div className="portal-status">
+                <span>
+                  Client portal password: <b className={hasPassword ? "on" : "off"}>{hasPassword ? "On" : "Off"}</b>
+                </span>
+                <button type="button" className="mini-btn" onClick={() => setPasswordOpen(true)}>
+                  {hasPassword ? "Manage" : "Set up"}
+                </button>
+              </div>
               <a href="/admin" className="side-link">
                 &larr; All clients
               </a>
@@ -2579,6 +2795,14 @@ export default function Dashboard({
         </div>
       </div>
 
+      {passwordOpen && (
+        <PasswordDialog
+          hasPassword={hasPassword}
+          saving={savingPassword}
+          onSave={savePortalPassword}
+          onClose={() => setPasswordOpen(false)}
+        />
+      )}
       {presenting && (
         <PresentMode
           content={content}

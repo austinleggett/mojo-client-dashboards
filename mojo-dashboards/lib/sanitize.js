@@ -84,17 +84,17 @@ const ALLOWED_STYLES = {
   // Hex only -- matches exactly what FormatToolbar's preset swatches
   // write (see components/FormatToolbar.js), never an arbitrary
   // css value.
-  color: [/^#[0-9a-f]{3,8}$/i],
+  color: [/^#[0-9a-f]{3,8}$/i, /^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/i],
   // Same idea, for the top format bar's background-color picker --
   // plus "transparent", which is what clearing a background writes.
-  "background-color": [/^#[0-9a-f]{3,8}$/i, /^transparent$/i],
+  "background-color": [/^#[0-9a-f]{3,8}$/i, /^transparent$/i, /^rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)$/i],
 };
 
 export function sanitizeRichText(html) {
   if (typeof html !== "string") return html;
   return sanitizeHtml(html, {
     allowedTags: ["b", "strong", "i", "em", "u", "span", "div", "br", "a"],
-    allowedAttributes: { span: ["style"], div: ["style"], a: ["href", "class", "target", "rel"] },
+    allowedAttributes: { span: ["style"], div: ["style"], a: ["href", "class", "target", "rel", "style"] },
     allowedStyles: { "*": ALLOWED_STYLES },
     // Links: only http(s)/mailto/tel ever survive, only our two link
     // styles (an inline text link or a call-to-action button), and an
@@ -111,7 +111,11 @@ export function sanitizeRichText(html) {
         const href = safeUrl(attribs.href);
         if (!href) return { tagName: "span", attribs: {} };
         const cls = (attribs.class || "").split(/\s+/).includes(CTA_CLASS) ? CTA_CLASS : LINK_CLASS;
-        return { tagName: "a", attribs: { href, class: cls, ...linkAttrs(href) } };
+        const out = { href, class: cls, ...linkAttrs(href) };
+        // A button can carry its own brand color (background + text,
+        // hex only -- enforced by allowedStyles below).
+        if (cls === CTA_CLASS && attribs.style) out.style = attribs.style;
+        return { tagName: "a", attribs: out };
       },
     },
   });
@@ -124,7 +128,9 @@ function sanitizeCardLink(link) {
   if (!link || typeof link !== "object") return undefined;
   const url = safeUrl(link.url);
   if (!url) return undefined;
-  return { label: String(link.label ?? "").slice(0, 120), url };
+  const out = { label: String(link.label ?? "").slice(0, 120), url };
+  if (/^#[0-9a-f]{6}$/i.test(String(link.color || ""))) out.color = link.color;
+  return out;
 }
 
 // Walks the whole content tree and sanitizes only the string values at

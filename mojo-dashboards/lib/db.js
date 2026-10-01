@@ -25,7 +25,8 @@ if (process.env.NODE_ENV !== "production") {
 export function toSafeClient(client) {
   if (!client) return client;
   const { clientPassword, ...safe } = client;
-  return safe;
+  // Whether a portal password is set -- never the password itself.
+  return { ...safe, hasClientPassword: !!clientPassword };
 }
 
 // What a non-staff viewer (the client, or anyone with the link) gets:

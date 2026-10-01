@@ -14,7 +14,18 @@ export const dynamic = "force-dynamic"; // always read fresh content, never cach
 
 export async function generateMetadata({ params }) {
   const client = await prisma.client.findUnique({ where: { slug: params.slug } });
-  return { title: client ? `${client.name} · Mountain Mojo Dashboard` : "Dashboard not found" };
+  if (!client || !client.active) return { title: "Dashboard not found" };
+  const title = `${client.name} · Mountain Mojo Dashboard`;
+  const description = `Weekly updates and monthly meeting agendas for ${client.name}, from Mountain Mojo Group.`;
+  // The preview image itself comes from ./opengraph-image.js (and
+  // ./twitter-image.js), which Next.js wires up automatically.
+  return {
+    title,
+    description,
+    openGraph: { title, description, type: "website", siteName: "Mountain Mojo Group" },
+    twitter: { card: "summary_large_image", title, description },
+    robots: { index: false, follow: false },
+  };
 }
 
 export default async function ClientDashboardPage({ params, searchParams }) {

@@ -1,8 +1,11 @@
 import "./globals.css";
 
 export const metadata = {
+  // Link previews need absolute image URLs. SITE_URL can override this
+  // (e.g. for a staging domain).
+  metadataBase: new URL(process.env.SITE_URL || "https://mountainmojostudios.com"),
   title: "Mountain Mojo Client Dashboards",
-  description: "Monthly marketing updates for Mountain Mojo Group clients.",
+  description: "Weekly updates and monthly meeting agendas for Mountain Mojo Group clients.",
 };
 
 // Runs before hydration so a saved light/dark choice applies to the

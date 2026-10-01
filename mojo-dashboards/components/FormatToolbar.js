@@ -43,6 +43,7 @@ export default function FormatToolbar({
   canUndo,
   onLink,
   onButton,
+  brandColors = [],
 }) {
   // Same trick as before: preventing the mousedown's default action
   // stops the browser from shifting focus (and losing whatever text
@@ -104,6 +105,36 @@ export default function FormatToolbar({
           />
         ))}
       </div>
+      {brandColors.length > 0 && (
+        <>
+          <span className="toolbar-sep" />
+          {/* The client's own brand colors (Brand colors, in the
+              sidebar) -- text color first, then as a background. */}
+          <div className="top-format-group" title="Brand colors">
+            <span className="toolbar-mini-label">Brand</span>
+            {brandColors.map((hex, i) => (
+              <button
+                key={`t${i}`}
+                type="button"
+                title={`Text: brand color ${hex}`}
+                className="color-btn"
+                style={{ "--swatch": hex }}
+                onClick={() => onColor(hex)}
+              />
+            ))}
+            {brandColors.map((hex, i) => (
+              <button
+                key={`b${i}`}
+                type="button"
+                title={`Background: brand color ${hex}`}
+                className="bg-swatch-btn"
+                style={{ "--swatch": hex }}
+                onClick={() => onBgColor(hex)}
+              />
+            ))}
+          </div>
+        </>
+      )}
       <span className="toolbar-sep" />
       {/* Background color, on any selected box(es) -- a free color
           picker rather than a fixed palette, since this can be set to
